@@ -423,7 +423,7 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   async function loadData(){
     const { data, error } = await sb
       .from("movies")
-      .select("*, profiles(display_name), ratings(user_id,value), comments(id,text,created_at,user_id,profiles(display_name))")
+      .select("*, profiles!user_id(display_name), ratings(user_id,value), comments(id,text,created_at,user_id,profiles!user_id(display_name))")
       .order("created_at", { ascending:false });
     if (error){ showStatus("Не удалось загрузить список: " + error.message, true); return; }
     movies = data || [];
