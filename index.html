@@ -7,19 +7,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Serif+4:ital,wght@0,400;0,600;1,500&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
 :root{
-  --bg:#f6f1e6;
-  --surface:#fffdf8;
-  --surface-2:#efe7d6;
-  --ink:#241d15;
-  --muted:#75695a;
-  --accent:#b9791f;
-  --accent-ink:#3a2708;
-  --accent-2:#8a2f40;
-  --want:#3f6690;
-  --watching:#b9791f;
-  --watched:#3c7048;
-  --border:rgba(36,29,21,0.14);
-  --shadow:rgba(36,29,21,0.16);
+  --bg:#f6f1e6; --surface:#fffdf8; --surface-2:#efe7d6; --ink:#241d15; --muted:#75695a;
+  --accent:#b9791f; --accent-ink:#3a2708; --accent-2:#8a2f40; --want:#3f6690; --watching:#b9791f;
+  --watched:#3c7048; --border:rgba(36,29,21,0.14); --shadow:rgba(36,29,21,0.16);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -46,12 +36,13 @@ header.marquee{background:linear-gradient(180deg,var(--surface-2),var(--surface)
 h1{font-family:'Bebas Neue',Impact,sans-serif;font-size:clamp(2.4rem,7vw,3.6rem);letter-spacing:0.04em;margin:0;color:var(--ink);}
 header.marquee .tagline{font-style:italic;color:var(--muted);margin:6px 0 14px;max-width:60ch;text-wrap:balance;}
 .you-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:0.92rem;}
-.you-row input{font:inherit;padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--ink);width:160px;}
+.role-badge{font-family:'JetBrains Mono',monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.04em;border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:2px 9px;}
 .btn{font-family:'Source Serif 4',serif;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--ink);padding:7px 13px;border-radius:8px;cursor:pointer;}
 .btn:hover{border-color:var(--accent);}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
 .btn.small{padding:4px 9px;font-size:0.85rem;}
 .btn.danger{color:var(--accent-2);border-color:var(--accent-2);background:transparent;}
+.btn.linklike{background:none;border:none;text-decoration:underline;color:var(--muted);padding:2px 0;}
 nav.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
 nav.tabs button{font-family:'Bebas Neue',sans-serif;letter-spacing:0.03em;font-size:1.05rem;padding:8px 16px 6px;border:1px solid var(--border);border-bottom:none;border-radius:10px 10px 0 0;background:var(--surface-2);color:var(--muted);cursor:pointer;position:relative;top:1px;}
 nav.tabs button.active{background:var(--surface);color:var(--ink);border-color:var(--accent);box-shadow:0 -2px 0 var(--accent) inset;}
@@ -102,6 +93,24 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 .empty-note{color:var(--muted);font-style:italic;text-align:center;padding:30px 10px;}
 .foot-note{text-align:center;color:var(--muted);font-size:0.8rem;margin-top:26px;}
 @media (max-width:480px){ .row2{grid-template-columns:1fr;} header.marquee{padding:20px 16px 16px;} }
+
+/* Auth screen */
+#authScreen:not([hidden]){min-height:80vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.auth-card{max-width:380px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:30px 26px;box-shadow:0 20px 50px -24px var(--shadow);}
+.auth-card h1{font-size:2.6rem;text-align:center;}
+.auth-card .tagline{text-align:center;}
+.auth-tabs{display:flex;gap:6px;margin:18px 0 16px;background:var(--surface-2);border-radius:10px;padding:4px;}
+.auth-tabs button{flex:1;border:none;background:none;padding:8px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600;color:var(--muted);}
+.auth-tabs button.active{background:var(--surface);color:var(--ink);box-shadow:0 2px 6px -2px var(--shadow);}
+.auth-form button.primary{width:100%;margin-top:4px;}
+.auth-msg{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:0.88rem;background:var(--surface-2);}
+.auth-msg.error{color:var(--accent-2);}
+.auth-msg.ok{color:var(--watched);}
+
+/* Admin */
+.users-table{width:100%;border-collapse:collapse;font-size:0.9rem;}
+.users-table th{text-align:left;color:var(--muted);font-weight:600;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.03em;padding:6px 8px;border-bottom:1px solid var(--border);}
+.users-table td{padding:8px;border-bottom:1px solid var(--border);vertical-align:middle;}
 </style>
 </head>
 <body>
@@ -110,6 +119,30 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   <div id="setupNotice" hidden>
     <h2>Кинозал почти готов</h2>
     <p>Не хватает подключения к базе данных Supabase. Откройте файл <code>index.html</code>, найдите в начале скрипта строки <code>SUPABASE_URL</code> и <code>SUPABASE_ANON_KEY</code> и вставьте туда значения из настроек вашего проекта Supabase (раздел Project Settings → API), затем сохраните файл и обновите страницу.</p>
+  </div>
+
+  <div id="authScreen" hidden>
+    <div class="auth-card">
+      <h1>КИНОЗАЛ</h1>
+      <p class="tagline">Вход только для своих</p>
+      <div class="auth-tabs">
+        <button data-atab="login" class="active" type="button">Войти</button>
+        <button data-atab="signup" type="button">Регистрация</button>
+      </div>
+      <form id="loginForm" class="auth-form">
+        <div class="field"><label for="li-email">Email</label><input id="li-email" type="email" required autocomplete="username"></div>
+        <div class="field"><label for="li-password">Пароль</label><input id="li-password" type="password" required minlength="6" autocomplete="current-password"></div>
+        <button class="btn primary" type="submit">Войти</button>
+        <button class="btn linklike small" id="forgotBtn" type="button">Забыли пароль?</button>
+      </form>
+      <form id="signupForm" class="auth-form" hidden>
+        <div class="field"><label for="su-name">Ваше имя</label><input id="su-name" required maxlength="40" autocomplete="nickname"></div>
+        <div class="field"><label for="su-email">Email</label><input id="su-email" type="email" required autocomplete="username"></div>
+        <div class="field"><label for="su-password">Пароль (минимум 6 символов)</label><input id="su-password" type="password" required minlength="6" autocomplete="new-password"></div>
+        <button class="btn primary" type="submit">Создать аккаунт</button>
+      </form>
+      <p id="authMsg" class="auth-msg" hidden></p>
+    </div>
   </div>
 
   <div id="mainApp" hidden>
@@ -130,7 +163,7 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 
     <main id="grid" class="grid"><p class="empty-note" style="grid-column:1/-1;">Загрузка…</p></main>
 
-    <p class="foot-note">Ссылку на эту страницу можно переслать друзьям — список общий для всех.</p>
+    <p class="foot-note">Ссылку на эту страницу можно переслать друзьям — им нужно будет зарегистрироваться, чтобы участвовать.</p>
 
     <button class="fab" id="addBtn">+ Добавить</button>
 
@@ -164,10 +197,6 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
             <label for="f-note">Заметка (необязательно)</label>
             <textarea id="f-note" maxlength="400" placeholder="Почему стоит посмотреть, откуда рекомендация…"></textarea>
           </div>
-          <div class="field">
-            <label for="f-name">Ваше имя</label>
-            <input id="f-name" required maxlength="40" placeholder="Как вас видят другие">
-          </div>
           <div class="dialog-actions">
             <button type="button" class="btn" data-close="addDialog">Отмена</button>
             <button type="submit" class="btn primary">Добавить</button>
@@ -179,6 +208,36 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     <dialog id="detailDialog">
       <div class="dialog-inner" id="detailInner"></div>
     </dialog>
+
+    <dialog id="profileDialog">
+      <div class="dialog-inner">
+        <button class="close-x" data-close="profileDialog">✕</button>
+        <h2>Профиль</h2>
+        <div class="field">
+          <label for="p-name">Имя</label>
+          <input id="p-name" maxlength="40">
+        </div>
+        <div class="dialog-actions"><button class="btn primary small" id="saveNameBtn2" type="button">Сохранить имя</button></div>
+        <div class="field" style="margin-top:18px;">
+          <label for="p-password">Новый пароль</label>
+          <input id="p-password" type="password" minlength="6" placeholder="Минимум 6 символов">
+        </div>
+        <div class="dialog-actions"><button class="btn small" id="changePassBtn" type="button">Сменить пароль</button></div>
+        <p id="profileMsg" class="auth-msg" hidden></p>
+        <div class="dialog-actions" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
+          <button class="btn danger small" id="signOutBtn" type="button">Выйти из аккаунта</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="adminDialog">
+      <div class="dialog-inner">
+        <button class="close-x" data-close="adminDialog">✕</button>
+        <h2>Пользователи</h2>
+        <p style="color:var(--muted);font-size:0.85rem;">Здесь можно выдать или снять права администратора.</p>
+        <table class="users-table" id="usersTable"><tbody></tbody></table>
+      </div>
+    </dialog>
   </div>
 </div>
 
@@ -188,8 +247,8 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   "use strict";
 
   // ====== НАСТРОЙКА: вставьте сюда данные вашего проекта Supabase ======
-  const SUPABASE_URL = "https://fbewqeffdgrlyahetykx.supabase.co";       // например https://xxxxxxxx.supabase.co
-  const SUPABASE_ANON_KEY = "sb_publishable_o-gkUyR979lyzb9w9W7i7g_463PhMki";       // Project Settings → API → anon public
+  const SUPABASE_URL = "https://fbewqeffdgrlyahetykx.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_o-gkUyR979lyzb9w9W7i7g_463PhMki";
   // =======================================================================
 
   if (!SUPABASE_URL || SUPABASE_URL.indexOf("ВСТАВЬТЕ") !== -1 ||
@@ -197,8 +256,13 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     document.getElementById("setupNotice").hidden = false;
     return;
   }
-  document.getElementById("mainApp").hidden = false;
 
+  if (!window.supabase || !window.supabase.createClient){
+    document.getElementById("setupNotice").hidden = false;
+    document.querySelector("#setupNotice p").textContent =
+      "Не удалось загрузить библиотеку Supabase (проверьте интернет-соединение или отключите блокировщик скриптов) — обновите страницу.";
+    return;
+  }
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const TABS = [
@@ -214,16 +278,15 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   let activeTab = "all";
   let searchQuery = "";
   let openMovieId = null;
-
-  let yourName = "";
-  try { yourName = localStorage.getItem("kinoZalName") || ""; } catch(e){}
+  let session = null;
+  let myProfile = null;
+  let realtimeChannel = null;
 
   function escapeHtml(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
     });
   }
-
   function pluralRu(n, forms){
     var abs = Math.abs(n) % 100, last = abs % 10;
     if (abs > 10 && abs < 20) return forms[2];
@@ -231,20 +294,17 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     if (last === 1) return forms[0];
     return forms[2];
   }
-
   function ratingAvg(m){
     var vals = (m.ratings||[]).map(function(r){return r.value;});
     if (!vals.length) return null;
     return vals.reduce(function(a,b){return a+b;},0) / vals.length;
   }
-
   function starsHtml(avg, max){
     max = max || 5;
     var full = avg ? Math.round(avg) : 0, out = "";
     for (var i=1;i<=max;i++){ out += (i<=full) ? "★" : "<span class=\"empty\">★</span>"; }
     return out;
   }
-
   function showStatus(msg, isError){
     var el = document.getElementById("statusBanner");
     el.textContent = msg;
@@ -252,11 +312,118 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     el.hidden = false;
     setTimeout(function(){ el.hidden = true; }, 4000);
   }
+  function showAuthMsg(text, kind){
+    var el = document.getElementById("authMsg");
+    el.textContent = text;
+    el.className = "auth-msg" + (kind ? " " + kind : "");
+    el.hidden = false;
+  }
+  function canEdit(m){
+    return !!myProfile && (m.user_id === myProfile.id || myProfile.role === "admin");
+  }
+
+  // ---------- AUTH SCREEN ----------
+  Array.prototype.forEach.call(document.querySelectorAll("[data-atab]"), function(btn){
+    btn.addEventListener("click", function(){
+      var which = btn.getAttribute("data-atab");
+      Array.prototype.forEach.call(document.querySelectorAll("[data-atab]"), function(b){ b.classList.toggle("active", b===btn); });
+      document.getElementById("loginForm").hidden = which !== "login";
+      document.getElementById("signupForm").hidden = which !== "signup";
+      document.getElementById("authMsg").hidden = true;
+    });
+  });
+
+  document.getElementById("loginForm").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    var email = document.getElementById("li-email").value.trim();
+    var password = document.getElementById("li-password").value;
+    showAuthMsg("Входим…");
+    const { error } = await sb.auth.signInWithPassword({ email:email, password:password });
+    if (error){ showAuthMsg("Не удалось войти: " + error.message, "error"); return; }
+    document.getElementById("authMsg").hidden = true;
+  });
+
+  document.getElementById("signupForm").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    var name = document.getElementById("su-name").value.trim();
+    var email = document.getElementById("su-email").value.trim();
+    var password = document.getElementById("su-password").value;
+    if (!name){ showAuthMsg("Введите имя", "error"); return; }
+    showAuthMsg("Создаём аккаунт…");
+    const { data, error } = await sb.auth.signUp({
+      email:email, password:password,
+      options:{ data:{ display_name:name } }
+    });
+    if (error){ showAuthMsg("Не удалось зарегистрироваться: " + error.message, "error"); return; }
+    if (data && data.session){
+      showAuthMsg("Готово! Входим…", "ok");
+    } else {
+      showAuthMsg("Аккаунт создан. Если включено подтверждение почты — проверьте письмо, затем войдите.", "ok");
+    }
+  });
+
+  document.getElementById("forgotBtn").addEventListener("click", async function(){
+    var email = document.getElementById("li-email").value.trim();
+    if (!email){ showAuthMsg("Сначала введите email в поле выше", "error"); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+    if (error){ showAuthMsg("Не удалось отправить письмо: " + error.message, "error"); return; }
+    showAuthMsg("Письмо для сброса пароля отправлено на " + email, "ok");
+  });
+
+  // ---------- SESSION / PROFILE ----------
+  async function onSignedIn(){
+    document.getElementById("authScreen").hidden = true;
+    const { data: profRows, error: profErr } = await sb.from("profiles").select("*").eq("id", session.user.id).limit(1);
+    if (profErr || !profRows || !profRows.length){
+      showStatus("Не удалось загрузить профиль: " + (profErr ? profErr.message : "нет записи"), true);
+      return;
+    }
+    myProfile = profRows[0];
+    document.getElementById("mainApp").hidden = false;
+    renderYouRow();
+    subscribeRealtime();
+    loadData();
+  }
+
+  function onSignedOut(){
+    myProfile = null;
+    movies = [];
+    if (realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; }
+    document.getElementById("mainApp").hidden = true;
+    document.getElementById("authScreen").hidden = false;
+  }
+
+  sb.auth.onAuthStateChange(function(event, sess){
+    session = sess;
+    if (event === "PASSWORD_RECOVERY"){
+      document.getElementById("mainApp").hidden = true;
+      document.getElementById("authScreen").hidden = true;
+      var pw = prompt("Введите новый пароль (минимум 6 символов):");
+      if (pw && pw.length >= 6){
+        sb.auth.updateUser({ password: pw }).then(function(res){
+          if (res.error) alert("Не удалось изменить пароль: " + res.error.message);
+          else alert("Пароль изменён, теперь можно пользоваться сайтом.");
+        });
+      }
+      return;
+    }
+    if (session){ onSignedIn(); } else { onSignedOut(); }
+  });
+
+  // ---------- DATA ----------
+  function subscribeRealtime(){
+    if (realtimeChannel) return;
+    realtimeChannel = sb.channel("public:kinozal")
+      .on("postgres_changes", {event:"*", schema:"public", table:"movies"}, loadData)
+      .on("postgres_changes", {event:"*", schema:"public", table:"ratings"}, loadData)
+      .on("postgres_changes", {event:"*", schema:"public", table:"comments"}, loadData)
+      .subscribe();
+  }
 
   async function loadData(){
     const { data, error } = await sb
       .from("movies")
-      .select("*, ratings(name,value), comments(id,name,text,created_at)")
+      .select("*, profiles(display_name), ratings(user_id,value), comments(id,text,created_at,user_id,profiles(display_name))")
       .order("created_at", { ascending:false });
     if (error){ showStatus("Не удалось загрузить список: " + error.message, true); return; }
     movies = data || [];
@@ -288,6 +455,7 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   function cardHtml(m){
     var avg = ratingAvg(m);
     var ratingCount = (m.ratings||[]).length;
+    var ownerName = (m.profiles && m.profiles.display_name) || "неизвестно";
     return '' +
       '<article class="card" data-id="'+m.id+'" style="border-left-color:var(--'+m.status+')">' +
         '<div class="top"><span class="badge">'+TYPE_LABEL[m.type]+'</span>' +
@@ -295,7 +463,7 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
         '<h3>'+escapeHtml(m.title)+'</h3>' +
         '<div class="meta mono">'+(m.year||"—")+(m.genre ? ' · '+escapeHtml(m.genre) : '')+'</div>' +
         '<div class="stars">'+ (avg ? starsHtml(avg) + ' <span class="mono" style="color:var(--muted);font-size:0.78rem;">'+avg.toFixed(1)+' ('+ratingCount+' '+pluralRu(ratingCount,["оценка","оценки","оценок"])+')</span>' : '<span style="color:var(--muted);font-size:0.82rem;">без оценок</span>') +'</div>' +
-        '<div class="addedby">добавил(а) '+escapeHtml(m.added_by)+'</div>' +
+        '<div class="addedby">добавил(а) '+escapeHtml(ownerName)+'</div>' +
       '</article>';
   }
 
@@ -315,27 +483,71 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 
   function renderYouRow(){
     var el = document.getElementById("youRow");
-    if (yourName){
-      el.innerHTML = 'Вы: <strong>'+escapeHtml(yourName)+'</strong> <button class="btn small" id="changeNameBtn" type="button">изменить имя</button>';
-      document.getElementById("changeNameBtn").addEventListener("click", askName);
-    } else {
-      el.innerHTML = '<input id="quickName" placeholder="Ваше имя" maxlength="40" style="width:150px;"> <button class="btn small" id="saveNameBtn" type="button">Сохранить имя</button>';
-      document.getElementById("saveNameBtn").addEventListener("click", function(){
-        var v = document.getElementById("quickName").value.trim();
-        if (v){ setYourName(v); }
-      });
-    }
+    if (!myProfile) { el.innerHTML = ""; return; }
+    var isAdmin = myProfile.role === "admin";
+    el.innerHTML =
+      'Вы: <strong>'+escapeHtml(myProfile.display_name)+'</strong> ' +
+      '<span class="role-badge">'+(isAdmin ? "администратор" : "участник")+'</span> ' +
+      '<button class="btn small" id="profileBtn" type="button">Профиль</button>' +
+      (isAdmin ? '<button class="btn small" id="adminBtn" type="button">Пользователи</button>' : '');
+    document.getElementById("profileBtn").addEventListener("click", openProfileDialog);
+    if (isAdmin) document.getElementById("adminBtn").addEventListener("click", openAdminDialog);
   }
 
-  function askName(){
-    var v = prompt("Как вас видеть другим участникам?", yourName || "");
-    if (v && v.trim()) setYourName(v.trim());
+  function openProfileDialog(){
+    document.getElementById("p-name").value = myProfile.display_name;
+    document.getElementById("p-password").value = "";
+    document.getElementById("profileMsg").hidden = true;
+    document.getElementById("profileDialog").showModal();
   }
 
-  function setYourName(v){
-    yourName = v;
-    try { localStorage.setItem("kinoZalName", v); } catch(e){}
+  document.getElementById("saveNameBtn2").addEventListener("click", async function(){
+    var v = document.getElementById("p-name").value.trim();
+    if (!v) return;
+    const { error } = await sb.from("profiles").update({display_name:v}).eq("id", myProfile.id);
+    var msg = document.getElementById("profileMsg");
+    msg.hidden = false;
+    if (error){ msg.textContent = "Ошибка: " + error.message; msg.className = "auth-msg error"; return; }
+    myProfile.display_name = v;
     renderYouRow();
+    msg.textContent = "Имя сохранено"; msg.className = "auth-msg ok";
+  });
+
+  document.getElementById("changePassBtn").addEventListener("click", async function(){
+    var v = document.getElementById("p-password").value;
+    var msg = document.getElementById("profileMsg");
+    if (!v || v.length < 6){ msg.hidden=false; msg.textContent="Пароль должен быть не короче 6 символов"; msg.className="auth-msg error"; return; }
+    const { error } = await sb.auth.updateUser({ password: v });
+    msg.hidden = false;
+    if (error){ msg.textContent = "Ошибка: " + error.message; msg.className = "auth-msg error"; return; }
+    document.getElementById("p-password").value = "";
+    msg.textContent = "Пароль изменён"; msg.className = "auth-msg ok";
+  });
+
+  document.getElementById("signOutBtn").addEventListener("click", async function(){
+    document.getElementById("profileDialog").close();
+    await sb.auth.signOut();
+  });
+
+  async function openAdminDialog(){
+    const { data, error } = await sb.from("profiles").select("*").order("display_name");
+    var tbody = document.querySelector("#usersTable tbody");
+    if (error){ tbody.innerHTML = '<tr><td>Ошибка загрузки: '+escapeHtml(error.message)+'</td></tr>'; document.getElementById("adminDialog").showModal(); return; }
+    tbody.innerHTML = '<tr><th>Имя</th><th>Роль</th><th></th></tr>' + data.map(function(u){
+      var isMe = u.id === myProfile.id;
+      var isAdm = u.role === "admin";
+      return '<tr><td>'+escapeHtml(u.display_name)+(isMe?' <span class="mono" style="color:var(--muted);font-size:0.75rem;">(вы)</span>':'')+'</td>' +
+        '<td>'+(isAdm?'администратор':'участник')+'</td>' +
+        '<td>'+(isMe ? '' : '<button class="btn small" data-uid="'+u.id+'" data-role="'+(isAdm?"user":"admin")+'">'+(isAdm?"Снять права":"Сделать админом")+'</button>')+'</td></tr>';
+    }).join("");
+    Array.prototype.forEach.call(tbody.querySelectorAll("[data-uid]"), function(btn){
+      btn.addEventListener("click", async function(){
+        const { error } = await sb.from("profiles").update({role:btn.getAttribute("data-role")}).eq("id", btn.getAttribute("data-uid"));
+        if (error){ showStatus("Не удалось изменить роль: "+error.message, true); return; }
+        openAdminDialog();
+      });
+    });
+    document.getElementById("adminDialog").showModal();
   }
 
   function openDetail(id){
@@ -350,8 +562,9 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     if (!m){ inner.innerHTML = ""; return; }
     var avg = ratingAvg(m);
     var ratingCount = (m.ratings||[]).length;
-    var mine = (m.ratings||[]).find(function(r){return r.name===yourName;});
+    var mine = (m.ratings||[]).find(function(r){return r.user_id===myProfile.id;});
     var myRating = mine ? mine.value : 0;
+    var editable = canEdit(m);
 
     var starsControl = "";
     for (var i=1;i<=5;i++){
@@ -359,13 +572,17 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     }
 
     var statusButtons = ["want","watching","watched"].map(function(s){
-      return '<button type="button" class="btn small '+(m.status===s?"active":"")+'" data-status="'+s+'">'+STATUS_LABEL[s]+'</button>';
+      return '<button type="button" class="btn small '+(m.status===s?"active":"")+'" data-status="'+s+'" '+(editable?"":"disabled")+'>'+STATUS_LABEL[s]+'</button>';
     }).join("");
 
     var sortedComments = (m.comments||[]).slice().sort(function(a,b){return new Date(a.created_at)-new Date(b.created_at);});
     var commentsHtml = sortedComments.length
       ? sortedComments.map(function(c){
-          return '<div class="comment"><div class="who">'+escapeHtml(c.name)+'</div><div>'+escapeHtml(c.text)+'</div></div>';
+          var who = (c.profiles && c.profiles.display_name) || "неизвестно";
+          var canDel = myProfile && (c.user_id === myProfile.id || myProfile.role === "admin");
+          return '<div class="comment"><div class="who">'+escapeHtml(who)+
+            (canDel ? ' <button class="btn linklike small" data-del-comment="'+c.id+'" type="button">удалить</button>' : '') +
+            '</div><div>'+escapeHtml(c.text)+'</div></div>';
         }).join("")
       : '<p class="empty-note">Комментариев пока нет.</p>';
 
@@ -388,19 +605,19 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
           '<button class="btn primary small" type="submit">Отправить</button>' +
         '</form>' +
       '</div>' +
-      '<div class="dialog-actions"><button class="btn danger small" id="deleteBtn" type="button">Удалить из списка</button></div>';
+      (editable ? '<div class="dialog-actions"><button class="btn danger small" id="deleteBtn" type="button">Удалить из списка</button></div>' : '');
 
     Array.prototype.forEach.call(inner.querySelectorAll("[data-status]"), function(btn){
       btn.addEventListener("click", async function(){
+        if (btn.disabled) return;
         const { error } = await sb.from("movies").update({status:btn.getAttribute("data-status")}).eq("id", m.id);
         if (error) showStatus("Не удалось изменить статус: "+error.message, true);
       });
     });
     Array.prototype.forEach.call(inner.querySelectorAll("[data-star]"), function(btn){
       btn.addEventListener("click", async function(){
-        if (!yourName){ askName(); if(!yourName) return; }
         const val = parseInt(btn.getAttribute("data-star"),10);
-        const { error } = await sb.from("ratings").upsert({movie_id:m.id, name:yourName, value:val}, {onConflict:"movie_id,name"});
+        const { error } = await sb.from("ratings").upsert({movie_id:m.id, user_id:myProfile.id, value:val}, {onConflict:"movie_id,user_id"});
         if (error) showStatus("Не удалось сохранить оценку: "+error.message, true);
       });
     });
@@ -408,12 +625,18 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
       ev.preventDefault();
       var text = document.getElementById("commentText").value.trim();
       if (!text) return;
-      if (!yourName){ askName(); if(!yourName) return; }
-      const { error } = await sb.from("comments").insert({movie_id:m.id, name:yourName, text:text});
+      const { error } = await sb.from("comments").insert({movie_id:m.id, user_id:myProfile.id, text:text});
       if (error) { showStatus("Не удалось отправить комментарий: "+error.message, true); return; }
       document.getElementById("commentText").value = "";
     });
-    inner.querySelector("#deleteBtn").addEventListener("click", async function(){
+    Array.prototype.forEach.call(inner.querySelectorAll("[data-del-comment]"), function(btn){
+      btn.addEventListener("click", async function(){
+        const { error } = await sb.from("comments").delete().eq("id", btn.getAttribute("data-del-comment"));
+        if (error) showStatus("Не удалось удалить комментарий: "+error.message, true);
+      });
+    });
+    var deleteBtn = inner.querySelector("#deleteBtn");
+    if (deleteBtn) deleteBtn.addEventListener("click", async function(){
       if (!confirm('Удалить «'+m.title+'» из общего списка?')) return;
       const { error } = await sb.from("movies").delete().eq("id", m.id);
       if (error) { showStatus("Не удалось удалить: "+error.message, true); return; }
@@ -426,23 +649,19 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   }
 
   document.getElementById("addBtn").addEventListener("click", function(){
-    var nameField = document.getElementById("f-name");
-    if (yourName) nameField.value = yourName;
     document.getElementById("addDialog").showModal();
   });
 
   document.getElementById("addForm").addEventListener("submit", async function(ev){
     ev.preventDefault();
     var title = document.getElementById("f-title").value.trim();
-    var name = document.getElementById("f-name").value.trim();
-    if (!title || !name) return;
+    if (!title) return;
     var type = document.querySelector('input[name="f-type"]:checked').value;
     var year = parseInt(document.getElementById("f-year").value, 10) || null;
     var genre = document.getElementById("f-genre").value.trim();
     var note = document.getElementById("f-note").value.trim();
-    setYourName(name);
     const { error } = await sb.from("movies").insert({
-      title:title, type:type, year:year, genre:genre, note:note, status:"want", added_by:name
+      title:title, type:type, year:year, genre:genre, note:note, status:"want", user_id:myProfile.id
     });
     if (error) { showStatus("Не удалось добавить: "+error.message, true); return; }
     document.getElementById("addForm").reset();
@@ -458,14 +677,11 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     renderGrid();
   });
 
-  sb.channel("public:kinozal")
-    .on("postgres_changes", {event:"*", schema:"public", table:"movies"}, loadData)
-    .on("postgres_changes", {event:"*", schema:"public", table:"ratings"}, loadData)
-    .on("postgres_changes", {event:"*", schema:"public", table:"comments"}, loadData)
-    .subscribe();
-
-  renderYouRow();
-  loadData();
+  // Kick things off: reveal either auth screen or app once we know the session state
+  sb.auth.getSession().then(function(res){
+    session = res.data.session;
+    if (session){ onSignedIn(); } else { document.getElementById("authScreen").hidden = false; }
+  });
 })();
 </script>
 </body>
