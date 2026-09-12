@@ -236,9 +236,6 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 
     <!-- ===== Каталог ===== -->
     <section id="section-catalog" class="section" hidden>
-      <div id="kpNotice" hidden style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
-        <p style="margin:0 0 6px;">Чтобы искать фильмы и сериалы, добавьте бесплатный ключ Kinopoisk.dev: напишите боту <span class="mono">@poiskkinodev_bot</span> в Telegram — он выдаст токен, затем вставьте его в файле <code>index.html</code> вместо <code>KP_API_KEY</code>.</p>
-      </div>
       <div class="toolbar">
         <input id="catalogSearch" type="text" placeholder="Название фильма или сериала…">
         <span class="count" id="catalogCount"></span>
@@ -358,8 +355,9 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   // ====== НАСТРОЙКА: вставьте сюда данные вашего проекта Supabase ======
   const SUPABASE_URL = "https://fbewqeffdgrlyahetykx.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_o-gkUyR979lyzb9w9W7i7g_463PhMki";
-  // ====== НАСТРОЙКА: бесплатный ключ Kinopoisk.dev (получить у бота @poiskkinodev_bot в Telegram) ======
-  const KP_API_KEY = "D24X2YM-51DM4F1-NTZM463-1JB5R2G";
+  // Ключ Kinopoisk.dev сюда вставлять больше не нужно — он хранится в Supabase
+  // (секрет KP_API_KEY у Edge Function "kinopoisk-proxy"), сайт обращается к
+  // Kinopoisk.dev через неё, а не напрямую из браузера. См. kinopoisk-proxy.ts.
   // =======================================================================
 
   if (!SUPABASE_URL || SUPABASE_URL.indexOf("ВСТАВЬТЕ") !== -1 ||
@@ -376,8 +374,6 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   }
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  const KP_READY = !!KP_API_KEY && KP_API_KEY.indexOf("ВСТАВЬТЕ") === -1;
-  const KP_BASE = "https://api.kinopoisk.dev/v1.4";
   const KP_TYPES = ["movie","tv-series","cartoon","anime","animated-series","tv-show"];
 
   const SECTIONS = [
@@ -579,7 +575,6 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
       document.getElementById("section-"+s.key).hidden = (s.key !== key);
     });
     if (key === "mylist") loadMyList();
-    else if (key === "catalog") { renderCatalogNotice(); }
     else if (key === "chat") loadChat();
     else if (key === "messages") loadDmConversations();
     else if (key === "friends") loadFriends();
@@ -765,25 +760,25 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
     bindClose(inner);
   }
 
-  // ================= КАТАЛОГ (Kinopoisk.dev) =================
+  // ================= КАТАЛОГ (Kinopoisk.dev, через прокси-функцию Supabase) =================
+  // Прямые запросы из браузера к api.kinopoisk.dev блокируются политикой CORS,
+  // поэтому сайт обращается к собственной Edge Function "kinopoisk-proxy" в
+  // Supabase, а она уже сама (сервер-сервер, без CORS) ходит в Kinopoisk.dev
+  // с секретным ключом. См. файл kinopoisk-proxy.ts и инструкцию по установке.
 
-  function renderCatalogNotice(){
-    document.getElementById("kpNotice").hidden = KP_READY;
-  }
-
-  function kpUrl(path, params){
-    var url = new URL(KP_BASE + path);
-    Object.keys(params||{}).forEach(function(k){
-      if (params[k] == null) return;
-      if (Array.isArray(params[k])) params[k].forEach(function(v){ url.searchParams.append(k, v); });
-      else url.searchParams.set(k, params[k]);
-    });
-    return url.toString();
-  }
   async function kpFetch(path, params){
-    var res = await fetch(kpUrl(path, params), { headers: { "X-API-KEY": KP_API_KEY, "accept":"application/json" } });
-    if (!res.ok) throw new Error("Kinopoisk.dev: код " + res.status + (res.status===403||res.status===429 ? " (похоже, кончился дневной лимит запросов)" : ""));
-    return res.json();
+    var res = await sb.functions.invoke("kinopoisk-proxy", { body: { path: path, params: params||{} } });
+    if (res.error){
+      throw new Error("Kinopoisk.dev: не удалось обратиться к серверу (" + (res.error.message || res.error) + ")");
+    }
+    var data = res.data;
+    if (!data || !data.ok){
+      var status = data ? data.status : "?";
+      var extra = (status===403||status===429) ? " (похоже, кончился дневной лимит запросов)" : "";
+      var detail = (data && data.message) ? " — " + data.message : "";
+      throw new Error("Kinopoisk.dev: код " + status + extra + detail);
+    }
+    return data.body;
   }
   // Kinopoisk.dev отдаёт жанры сразу названиями (не числовыми id, как TMDB),
   // поэтому отдельная загрузка «карты жанров» не нужна — этим и объясняется,
@@ -824,7 +819,6 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   });
 
   async function searchKp(query){
-    if (!KP_READY) return;
     document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Ищем…</p>';
     try {
       var res = await kpFetch("/movie/search", {query:query, limit:20});
@@ -856,9 +850,7 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
       ? catalogResults.length + " " + pluralRu(catalogResults.length, ["результат","результата","результатов"])
       : "";
     if (!catalogResults.length){
-      grid.innerHTML = KP_READY
-        ? '<p class="empty-note" style="grid-column:1/-1;">Начните вводить название в поиске выше.</p>'
-        : '';
+      grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Начните вводить название в поиске выше.</p>';
       return;
     }
     grid.innerHTML = catalogResults.map(catalogCardHtml).join("");
@@ -909,7 +901,6 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
   // ---------- Рекомендации ----------
   async function loadRecommendations(){
     var row = document.getElementById("recsRow");
-    if (!KP_READY){ row.hidden = true; return; }
     var likedGenres = {};
     myTitles.forEach(function(ut){
       var t = ut.titles;
@@ -1352,3 +1343,4 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 </script>
 </body>
 </html>
+
