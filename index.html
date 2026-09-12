@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Наш Кинозал</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Serif+4:ital,wght@0,400;0,600;1,500&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#f6f1e6;
+  --surface:#fffdf8;
+  --surface-2:#efe7d6;
+  --ink:#241d15;
+  --muted:#75695a;
+  --accent:#b9791f;
+  --accent-ink:#3a2708;
+  --accent-2:#8a2f40;
+  --want:#3f6690;
+  --watching:#b9791f;
+  --watched:#3c7048;
+  --border:rgba(36,29,21,0.14);
+  --shadow:rgba(36,29,21,0.16);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#161210; --surface:#211b16; --surface-2:#2a2219; --ink:#f3ead9; --muted:#b7a992;
+    --accent:#e3a542; --accent-ink:#1c1206; --accent-2:#d1697c; --want:#87acd4; --watching:#e3a542;
+    --watched:#79b789; --border:rgba(243,234,217,0.16); --shadow:rgba(0,0,0,0.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#161210; --surface:#211b16; --surface-2:#2a2219; --ink:#f3ead9; --muted:#b7a992;
+  --accent:#e3a542; --accent-ink:#1c1206; --accent-2:#d1697c; --want:#87acd4; --watching:#e3a542;
+  --watched:#79b789; --border:rgba(243,234,217,0.16); --shadow:rgba(0,0,0,0.45);
+}
+*{box-sizing:border-box;}
+html,body{background:var(--bg);}
+body{color:var(--ink);margin:0;font-family:'Source Serif 4',Georgia,'Times New Roman',serif;}
+#app-shell{max-width:1080px;margin:0 auto;padding:20px 16px 96px;position:relative;}
+.mono{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
+#setupNotice{max-width:640px;margin:60px auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:26px;}
+#setupNotice h2{font-family:'Bebas Neue',sans-serif;font-size:1.8rem;margin-top:0;}
+#setupNotice code{background:var(--surface-2);padding:2px 6px;border-radius:5px;}
+#statusBanner{background:var(--accent-2);color:#fff;text-align:center;padding:9px 14px;border-radius:8px;font-size:0.9rem;margin-bottom:14px;}
+header.marquee{background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--border);border-radius:14px;padding:26px 22px 20px;margin-bottom:18px;box-shadow:0 8px 24px -16px var(--shadow);}
+h1{font-family:'Bebas Neue',Impact,sans-serif;font-size:clamp(2.4rem,7vw,3.6rem);letter-spacing:0.04em;margin:0;color:var(--ink);}
+header.marquee .tagline{font-style:italic;color:var(--muted);margin:6px 0 14px;max-width:60ch;text-wrap:balance;}
+.you-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:0.92rem;}
+.you-row input{font:inherit;padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--ink);width:160px;}
+.btn{font-family:'Source Serif 4',serif;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--ink);padding:7px 13px;border-radius:8px;cursor:pointer;}
+.btn:hover{border-color:var(--accent);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
+.btn.small{padding:4px 9px;font-size:0.85rem;}
+.btn.danger{color:var(--accent-2);border-color:var(--accent-2);background:transparent;}
+nav.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+nav.tabs button{font-family:'Bebas Neue',sans-serif;letter-spacing:0.03em;font-size:1.05rem;padding:8px 16px 6px;border:1px solid var(--border);border-bottom:none;border-radius:10px 10px 0 0;background:var(--surface-2);color:var(--muted);cursor:pointer;position:relative;top:1px;}
+nav.tabs button.active{background:var(--surface);color:var(--ink);border-color:var(--accent);box-shadow:0 -2px 0 var(--accent) inset;}
+nav.tabs .n{font-family:'JetBrains Mono',monospace;font-size:0.75rem;margin-left:6px;color:var(--muted);}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+.toolbar input{flex:1;min-width:160px;font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--ink);}
+.toolbar .count{color:var(--muted);font-size:0.85rem;white-space:nowrap;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px 16px;cursor:pointer;position:relative;border-left-width:5px;box-shadow:0 6px 16px -14px var(--shadow);display:flex;flex-direction:column;gap:6px;min-height:150px;}
+.card:hover{border-color:var(--accent);}
+.card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.badge{font-family:'JetBrains Mono',monospace;font-size:0.68rem;letter-spacing:0.03em;text-transform:uppercase;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:2px 6px;white-space:nowrap;}
+.card h3{font-family:'Source Serif 4',serif;font-weight:600;font-size:1.08rem;margin:0;line-height:1.25;text-wrap:balance;}
+.meta{color:var(--muted);font-size:0.82rem;display:flex;gap:8px;flex-wrap:wrap;}
+.stars{color:var(--accent);letter-spacing:1px;font-size:0.95rem;}
+.stars .empty{color:var(--border);}
+.addedby{margin-top:auto;font-size:0.76rem;color:var(--muted);}
+.status-pill{font-size:0.72rem;font-family:'JetBrains Mono',monospace;border-radius:20px;padding:3px 9px;display:inline-block;width:fit-content;}
+.status-want{background:color-mix(in srgb, var(--want) 22%, transparent);color:var(--want);}
+.status-watching{background:color-mix(in srgb, var(--watching) 24%, transparent);color:var(--watching);}
+.status-watched{background:color-mix(in srgb, var(--watched) 22%, transparent);color:var(--watched);}
+.fab{position:fixed;right:20px;bottom:20px;background:var(--accent);color:var(--accent-ink);border:none;padding:13px 20px;border-radius:30px;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.03em;cursor:pointer;box-shadow:0 10px 24px -10px var(--shadow);}
+.fab:hover{filter:brightness(1.06);}
+dialog{border:none;border-radius:14px;padding:0;background:var(--surface);color:var(--ink);max-width:560px;width:92vw;box-shadow:0 20px 60px -20px rgba(0,0,0,0.5);}
+dialog::backdrop{background:rgba(20,16,12,0.55);}
+.dialog-inner{padding:22px 22px 20px;max-height:82vh;overflow-y:auto;}
+.dialog-inner h2{font-family:'Bebas Neue',sans-serif;font-size:1.7rem;letter-spacing:0.03em;margin:0 0 4px;}
+.field{margin-bottom:12px;display:flex;flex-direction:column;gap:5px;}
+.field label{font-size:0.82rem;color:var(--muted);}
+.field input,.field select,.field textarea{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);width:100%;}
+.field textarea{resize:vertical;min-height:60px;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.radio-group{display:flex;gap:14px;font-size:0.92rem;}
+.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+.close-x{position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.3rem;color:var(--muted);cursor:pointer;}
+.detail-meta{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px;}
+.detail-note{color:var(--ink);opacity:0.9;margin:10px 0;}
+.rate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0;}
+.rate-stars button{background:none;border:none;font-size:1.4rem;color:var(--border);cursor:pointer;padding:0 1px;}
+.rate-stars button.on{color:var(--accent);}
+.status-switch{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px;}
+.status-switch button{flex:1;min-width:110px;}
+.status-switch button.active{outline:2px solid var(--accent);}
+.comments{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;}
+.comment{padding:8px 0;border-bottom:1px dashed var(--border);}
+.comment:last-child{border-bottom:none;}
+.comment .who{font-size:0.78rem;color:var(--muted);margin-bottom:2px;}
+.empty-note{color:var(--muted);font-style:italic;text-align:center;padding:30px 10px;}
+.foot-note{text-align:center;color:var(--muted);font-size:0.8rem;margin-top:26px;}
+@media (max-width:480px){ .row2{grid-template-columns:1fr;} header.marquee{padding:20px 16px 16px;} }
+</style>
+</head>
+<body>
+<div id="app-shell">
+
+  <div id="setupNotice" hidden>
+    <h2>Кинозал почти готов</h2>
+    <p>Не хватает подключения к базе данных Supabase. Откройте файл <code>index.html</code>, найдите в начале скрипта строки <code>SUPABASE_URL</code> и <code>SUPABASE_ANON_KEY</code> и вставьте туда значения из настроек вашего проекта Supabase (раздел Project Settings → API), затем сохраните файл и обновите страницу.</p>
+  </div>
+
+  <div id="mainApp" hidden>
+    <div id="statusBanner" hidden></div>
+
+    <header class="marquee">
+      <h1>НАШ КИНОЗАЛ</h1>
+      <p class="tagline">Общий список фильмов и сериалов — добавляйте, отмечайте статус, ставьте оценки и обсуждайте в комментариях.</p>
+      <div class="you-row" id="youRow"></div>
+    </header>
+
+    <nav class="tabs" id="tabs"></nav>
+
+    <div class="toolbar">
+      <input id="searchInput" type="text" placeholder="Поиск по названию…">
+      <span class="count" id="resultCount"></span>
+    </div>
+
+    <main id="grid" class="grid"><p class="empty-note" style="grid-column:1/-1;">Загрузка…</p></main>
+
+    <p class="foot-note">Ссылку на эту страницу можно переслать друзьям — список общий для всех.</p>
+
+    <button class="fab" id="addBtn">+ Добавить</button>
+
+    <dialog id="addDialog">
+      <div class="dialog-inner">
+        <button class="close-x" data-close="addDialog">✕</button>
+        <h2>Добавить в список</h2>
+        <form id="addForm">
+          <div class="field">
+            <label for="f-title">Название</label>
+            <input id="f-title" required maxlength="120" placeholder="Например, «Интерстеллар»">
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label>Тип</label>
+              <div class="radio-group">
+                <label><input type="radio" name="f-type" value="movie" checked> Фильм</label>
+                <label><input type="radio" name="f-type" value="series"> Сериал</label>
+              </div>
+            </div>
+            <div class="field">
+              <label for="f-year">Год</label>
+              <input id="f-year" type="number" min="1900" max="2100" placeholder="2024">
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-genre">Жанр</label>
+            <input id="f-genre" maxlength="60" placeholder="Например, фантастика">
+          </div>
+          <div class="field">
+            <label for="f-note">Заметка (необязательно)</label>
+            <textarea id="f-note" maxlength="400" placeholder="Почему стоит посмотреть, откуда рекомендация…"></textarea>
+          </div>
+          <div class="field">
+            <label for="f-name">Ваше имя</label>
+            <input id="f-name" required maxlength="40" placeholder="Как вас видят другие">
+          </div>
+          <div class="dialog-actions">
+            <button type="button" class="btn" data-close="addDialog">Отмена</button>
+            <button type="submit" class="btn primary">Добавить</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="detailDialog">
+      <div class="dialog-inner" id="detailInner"></div>
+    </dialog>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ====== НАСТРОЙКА: вставьте сюда данные вашего проекта Supabase ======
+  const SUPABASE_URL = "https://fbewqeffdgrlyahetykx.supabase.co";       // например https://xxxxxxxx.supabase.co
+  const SUPABASE_ANON_KEY = "sb_publishable_o-gkUyR979lyzb9w9W7i7g_463PhMki";       // Project Settings → API → anon public
+  // =======================================================================
+
+  if (!SUPABASE_URL || SUPABASE_URL.indexOf("ВСТАВЬТЕ") !== -1 ||
+      !SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.indexOf("ВСТАВЬТЕ") !== -1){
+    document.getElementById("setupNotice").hidden = false;
+    return;
+  }
+  document.getElementById("mainApp").hidden = false;
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const TABS = [
+    {key:"all", label:"Все"},
+    {key:"want", label:"Хотим посмотреть"},
+    {key:"watching", label:"Смотрим"},
+    {key:"watched", label:"Посмотрели"}
+  ];
+  const STATUS_LABEL = {want:"Хотим посмотреть", watching:"Смотрим", watched:"Посмотрели"};
+  const TYPE_LABEL = {movie:"Фильм", series:"Сериал"};
+
+  let movies = [];
+  let activeTab = "all";
+  let searchQuery = "";
+  let openMovieId = null;
+
+  let yourName = "";
+  try { yourName = localStorage.getItem("kinoZalName") || ""; } catch(e){}
+
+  function escapeHtml(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  function pluralRu(n, forms){
+    var abs = Math.abs(n) % 100, last = abs % 10;
+    if (abs > 10 && abs < 20) return forms[2];
+    if (last > 1 && last < 5) return forms[1];
+    if (last === 1) return forms[0];
+    return forms[2];
+  }
+
+  function ratingAvg(m){
+    var vals = (m.ratings||[]).map(function(r){return r.value;});
+    if (!vals.length) return null;
+    return vals.reduce(function(a,b){return a+b;},0) / vals.length;
+  }
+
+  function starsHtml(avg, max){
+    max = max || 5;
+    var full = avg ? Math.round(avg) : 0, out = "";
+    for (var i=1;i<=max;i++){ out += (i<=full) ? "★" : "<span class=\"empty\">★</span>"; }
+    return out;
+  }
+
+  function showStatus(msg, isError){
+    var el = document.getElementById("statusBanner");
+    el.textContent = msg;
+    el.style.background = isError ? "var(--accent-2)" : "var(--watched)";
+    el.hidden = false;
+    setTimeout(function(){ el.hidden = true; }, 4000);
+  }
+
+  async function loadData(){
+    const { data, error } = await sb
+      .from("movies")
+      .select("*, ratings(name,value), comments(id,name,text,created_at)")
+      .order("created_at", { ascending:false });
+    if (error){ showStatus("Не удалось загрузить список: " + error.message, true); return; }
+    movies = data || [];
+    renderTabs();
+    renderGrid();
+    if (openMovieId) renderDetail();
+  }
+
+  function movieMatches(m){
+    if (activeTab !== "all" && m.status !== activeTab) return false;
+    if (searchQuery && m.title.toLowerCase().indexOf(searchQuery.toLowerCase()) === -1) return false;
+    return true;
+  }
+
+  function renderTabs(){
+    var el = document.getElementById("tabs");
+    el.innerHTML = TABS.map(function(t){
+      var n = t.key === "all" ? movies.length : movies.filter(function(m){return m.status===t.key;}).length;
+      return '<button data-tab="'+t.key+'" class="'+(activeTab===t.key?"active":"")+'">'+t.label+'<span class="n">'+n+'</span></button>';
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("button"), function(btn){
+      btn.addEventListener("click", function(){
+        activeTab = btn.getAttribute("data-tab");
+        renderTabs(); renderGrid();
+      });
+    });
+  }
+
+  function cardHtml(m){
+    var avg = ratingAvg(m);
+    var ratingCount = (m.ratings||[]).length;
+    return '' +
+      '<article class="card" data-id="'+m.id+'" style="border-left-color:var(--'+m.status+')">' +
+        '<div class="top"><span class="badge">'+TYPE_LABEL[m.type]+'</span>' +
+        '<span class="status-pill status-'+m.status+'">'+STATUS_LABEL[m.status]+'</span></div>' +
+        '<h3>'+escapeHtml(m.title)+'</h3>' +
+        '<div class="meta mono">'+(m.year||"—")+(m.genre ? ' · '+escapeHtml(m.genre) : '')+'</div>' +
+        '<div class="stars">'+ (avg ? starsHtml(avg) + ' <span class="mono" style="color:var(--muted);font-size:0.78rem;">'+avg.toFixed(1)+' ('+ratingCount+' '+pluralRu(ratingCount,["оценка","оценки","оценок"])+')</span>' : '<span style="color:var(--muted);font-size:0.82rem;">без оценок</span>') +'</div>' +
+        '<div class="addedby">добавил(а) '+escapeHtml(m.added_by)+'</div>' +
+      '</article>';
+  }
+
+  function renderGrid(){
+    var grid = document.getElementById("grid");
+    var list = movies.filter(movieMatches);
+    document.getElementById("resultCount").textContent = list.length + " " + pluralRu(list.length, ["запись","записи","записей"]);
+    if (!list.length){
+      grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Ничего не найдено. Добавьте первый фильм кнопкой «+ Добавить».</p>';
+      return;
+    }
+    grid.innerHTML = list.map(cardHtml).join("");
+    Array.prototype.forEach.call(grid.querySelectorAll(".card"), function(card){
+      card.addEventListener("click", function(){ openDetail(card.getAttribute("data-id")); });
+    });
+  }
+
+  function renderYouRow(){
+    var el = document.getElementById("youRow");
+    if (yourName){
+      el.innerHTML = 'Вы: <strong>'+escapeHtml(yourName)+'</strong> <button class="btn small" id="changeNameBtn" type="button">изменить имя</button>';
+      document.getElementById("changeNameBtn").addEventListener("click", askName);
+    } else {
+      el.innerHTML = '<input id="quickName" placeholder="Ваше имя" maxlength="40" style="width:150px;"> <button class="btn small" id="saveNameBtn" type="button">Сохранить имя</button>';
+      document.getElementById("saveNameBtn").addEventListener("click", function(){
+        var v = document.getElementById("quickName").value.trim();
+        if (v){ setYourName(v); }
+      });
+    }
+  }
+
+  function askName(){
+    var v = prompt("Как вас видеть другим участникам?", yourName || "");
+    if (v && v.trim()) setYourName(v.trim());
+  }
+
+  function setYourName(v){
+    yourName = v;
+    try { localStorage.setItem("kinoZalName", v); } catch(e){}
+    renderYouRow();
+  }
+
+  function openDetail(id){
+    openMovieId = id;
+    renderDetail();
+    document.getElementById("detailDialog").showModal();
+  }
+
+  function renderDetail(){
+    var m = movies.find(function(x){return x.id===openMovieId;});
+    var inner = document.getElementById("detailInner");
+    if (!m){ inner.innerHTML = ""; return; }
+    var avg = ratingAvg(m);
+    var ratingCount = (m.ratings||[]).length;
+    var mine = (m.ratings||[]).find(function(r){return r.name===yourName;});
+    var myRating = mine ? mine.value : 0;
+
+    var starsControl = "";
+    for (var i=1;i<=5;i++){
+      starsControl += '<button type="button" data-star="'+i+'" class="'+(i<=myRating?"on":"")+'">★</button>';
+    }
+
+    var statusButtons = ["want","watching","watched"].map(function(s){
+      return '<button type="button" class="btn small '+(m.status===s?"active":"")+'" data-status="'+s+'">'+STATUS_LABEL[s]+'</button>';
+    }).join("");
+
+    var sortedComments = (m.comments||[]).slice().sort(function(a,b){return new Date(a.created_at)-new Date(b.created_at);});
+    var commentsHtml = sortedComments.length
+      ? sortedComments.map(function(c){
+          return '<div class="comment"><div class="who">'+escapeHtml(c.name)+'</div><div>'+escapeHtml(c.text)+'</div></div>';
+        }).join("")
+      : '<p class="empty-note">Комментариев пока нет.</p>';
+
+    inner.innerHTML =
+      '<button class="close-x" data-close="detailDialog">✕</button>' +
+      '<h2>'+escapeHtml(m.title)+'</h2>' +
+      '<div class="detail-meta mono">' +
+        '<span class="badge">'+TYPE_LABEL[m.type]+'</span>' +
+        '<span>'+(m.year||"—")+'</span>' +
+        (m.genre ? '<span>'+escapeHtml(m.genre)+'</span>' : '') +
+      '</div>' +
+      (m.note ? '<p class="detail-note">'+escapeHtml(m.note)+'</p>' : '') +
+      '<div class="status-switch">'+statusButtons+'</div>' +
+      '<div class="rate-row"><span class="rate-stars">'+starsControl+'</span>' +
+        '<span class="mono" style="color:var(--muted);font-size:0.85rem;">'+(avg ? avg.toFixed(1)+' · '+ratingCount+' '+pluralRu(ratingCount,["оценка","оценки","оценок"]) : "пока нет оценок")+'</span></div>' +
+      '<div class="comments"><h3 style="font-family:\'Bebas Neue\',sans-serif;font-size:1.15rem;letter-spacing:0.03em;margin:0 0 8px;">Комментарии</h3>' +
+        commentsHtml +
+        '<form id="commentForm" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<input id="commentText" placeholder="Написать комментарий…" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);font:inherit;">' +
+          '<button class="btn primary small" type="submit">Отправить</button>' +
+        '</form>' +
+      '</div>' +
+      '<div class="dialog-actions"><button class="btn danger small" id="deleteBtn" type="button">Удалить из списка</button></div>';
+
+    Array.prototype.forEach.call(inner.querySelectorAll("[data-status]"), function(btn){
+      btn.addEventListener("click", async function(){
+        const { error } = await sb.from("movies").update({status:btn.getAttribute("data-status")}).eq("id", m.id);
+        if (error) showStatus("Не удалось изменить статус: "+error.message, true);
+      });
+    });
+    Array.prototype.forEach.call(inner.querySelectorAll("[data-star]"), function(btn){
+      btn.addEventListener("click", async function(){
+        if (!yourName){ askName(); if(!yourName) return; }
+        const val = parseInt(btn.getAttribute("data-star"),10);
+        const { error } = await sb.from("ratings").upsert({movie_id:m.id, name:yourName, value:val}, {onConflict:"movie_id,name"});
+        if (error) showStatus("Не удалось сохранить оценку: "+error.message, true);
+      });
+    });
+    inner.querySelector("#commentForm").addEventListener("submit", async function(ev){
+      ev.preventDefault();
+      var text = document.getElementById("commentText").value.trim();
+      if (!text) return;
+      if (!yourName){ askName(); if(!yourName) return; }
+      const { error } = await sb.from("comments").insert({movie_id:m.id, name:yourName, text:text});
+      if (error) { showStatus("Не удалось отправить комментарий: "+error.message, true); return; }
+      document.getElementById("commentText").value = "";
+    });
+    inner.querySelector("#deleteBtn").addEventListener("click", async function(){
+      if (!confirm('Удалить «'+m.title+'» из общего списка?')) return;
+      const { error } = await sb.from("movies").delete().eq("id", m.id);
+      if (error) { showStatus("Не удалось удалить: "+error.message, true); return; }
+      document.getElementById("detailDialog").close();
+      openMovieId = null;
+    });
+    Array.prototype.forEach.call(inner.querySelectorAll("[data-close]"), function(btn){
+      btn.addEventListener("click", function(){ document.getElementById(btn.getAttribute("data-close")).close(); });
+    });
+  }
+
+  document.getElementById("addBtn").addEventListener("click", function(){
+    var nameField = document.getElementById("f-name");
+    if (yourName) nameField.value = yourName;
+    document.getElementById("addDialog").showModal();
+  });
+
+  document.getElementById("addForm").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    var title = document.getElementById("f-title").value.trim();
+    var name = document.getElementById("f-name").value.trim();
+    if (!title || !name) return;
+    var type = document.querySelector('input[name="f-type"]:checked').value;
+    var year = parseInt(document.getElementById("f-year").value, 10) || null;
+    var genre = document.getElementById("f-genre").value.trim();
+    var note = document.getElementById("f-note").value.trim();
+    setYourName(name);
+    const { error } = await sb.from("movies").insert({
+      title:title, type:type, year:year, genre:genre, note:note, status:"want", added_by:name
+    });
+    if (error) { showStatus("Не удалось добавить: "+error.message, true); return; }
+    document.getElementById("addForm").reset();
+    document.getElementById("addDialog").close();
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function(btn){
+    btn.addEventListener("click", function(){ document.getElementById(btn.getAttribute("data-close")).close(); });
+  });
+
+  document.getElementById("searchInput").addEventListener("input", function(ev){
+    searchQuery = ev.target.value;
+    renderGrid();
+  });
+
+  sb.channel("public:kinozal")
+    .on("postgres_changes", {event:"*", schema:"public", table:"movies"}, loadData)
+    .on("postgres_changes", {event:"*", schema:"public", table:"ratings"}, loadData)
+    .on("postgres_changes", {event:"*", schema:"public", table:"comments"}, loadData)
+    .subscribe();
+
+  renderYouRow();
+  loadData();
+})();
+</script>
+</body>
+</html>
