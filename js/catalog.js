@@ -256,8 +256,16 @@ async function loadCatalogDefault() {
     // (например, именно эта жанровая связка ни разу не кэширована и
     // ApiGet.ru прямо сейчас недоступен), остальные жанры всё равно
     // подгрузятся, просто подборка выйдет чуть меньше.
+    //
+    // ВАЖНО: раньше здесь был метод get-random с фильтром genre, но именно
+    // это сочетание (get-random + genre) у ApiGet.ru сейчас стабильно ломается
+    // — возвращает пустое нераспознаваемое тело ответа, хотя параметр genre
+    // официально документирован (проверено: get-random без genre работает,
+    // search с genre тоже работает — сбоит только их пара). Похоже на баг на
+    // стороне ApiGet.ru. Поэтому жанровую выборку теперь берём через search
+    // без текста запроса, только с фильтром по жанру — формат ответа тот же.
     var responses = await Promise.all(CATALOG_POPULAR_GENRES.map(function (g) {
-      return kpFetch("get-random", { genre: g, count: 20 }).catch(function () { return null; });
+      return kpFetch("search", { genre: g, limit: 20 }).catch(function () { return null; });
     }));
     var seen = {};
     var pool = [];
@@ -622,9 +630,10 @@ export async function loadRecommendations() {
       t.genre_names.forEach(function (g) { likedGenres[g] = (likedGenres[g] || 0) + 1; });
     }
   });
-  // ApiGet.ru принимает только один жанр за раз в get-random — берём самый
-  // частый среди понравившихся, второй по частоте в этом запросе не участвует
-  // (он всё равно почти всегда перекрывается социальными рекомендациями).
+  // ApiGet.ru принимает только один жанр за раз (что в get-random, что в
+  // search) — берём самый частый среди понравившихся, второй по частоте в
+  // этом запросе не участвует (он всё равно почти всегда перекрывается
+  // социальными рекомендациями).
   var topGenres = Object.keys(likedGenres).sort(function (a, b) { return likedGenres[b] - likedGenres[a]; }).slice(0, 2);
 
   if (!topGenres.length) {
@@ -642,10 +651,12 @@ export async function loadRecommendations() {
   }
 
   try {
-    // get-random отдаёт случайную выборку (не отсортированную по рейтингу),
-    // поэтому просим с запасом и сортируем сами, оставляя самые
-    // высокорейтинговые — как раньше делал Kinopoisk.dev через sortField.
-    var res = await kpFetch("get-random", { genre: topGenres[0], count: 20 });
+    // Используем search с фильтром по жанру, а не get-random — у ApiGet.ru
+    // сочетание get-random + genre сейчас ломается (см. подробный комментарий
+    // в loadCatalogDefault выше). search не отсортирован по рейтингу, поэтому
+    // просим с запасом и сортируем сами, оставляя самые высокорейтинговые —
+    // как раньше делал Kinopoisk.dev через sortField.
+    var res = await kpFetch("search", { genre: topGenres[0], limit: 20 });
     var rawItems = (res.results || [])
       .map(normalizeApiGetItem)
       .sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
