@@ -89,15 +89,40 @@ async function loadTitlesPanel() {
   const { data, error } = await sb.from("titles").select("*").order("created_at", {ascending: false});
   if (error) { tbody.innerHTML = '<tr><td>Ошибка загрузки: ' + escapeHtml(error.message) + '</td></tr>'; return; }
   allAdminTitles = data || [];
+  populateAdminTitlesGenreFilter();
   renderTitlesTable();
+}
+
+// Список жанров в фильтре собирается из уже загруженного каталога (без
+// отдельного запроса к базе или к ApiGet.ru) — поэтому в нём появляются
+// только реально встречающиеся в titles жанры, а не весь справочник.
+// Текущий выбор сохраняется между обновлениями списка, если такой жанр
+// всё ещё встречается.
+function populateAdminTitlesGenreFilter() {
+  var sel = document.getElementById("adminTitlesGenre");
+  var prev = sel.value || "all";
+  var genres = {};
+  allAdminTitles.forEach(function (t) { (t.genre_names || []).forEach(function (g) { if (g) genres[g] = true; }); });
+  var sorted = Object.keys(genres).sort(function (a, b) { return a.localeCompare(b, "ru"); });
+  sel.innerHTML = '<option value="all">Все жанры</option>' + sorted.map(function (g) {
+    return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>';
+  }).join("");
+  sel.value = (prev === "all" || sorted.indexOf(prev) !== -1) ? prev : "all";
 }
 
 function renderTitlesTable() {
   var q = (document.getElementById("adminTitlesSearch").value || "").trim().toLowerCase();
-  var list = q ? allAdminTitles.filter(function (t) { return t.title.toLowerCase().indexOf(q) !== -1; }) : allAdminTitles;
+  var typeFilter = document.getElementById("adminTitlesType").value;
+  var genreFilter = document.getElementById("adminTitlesGenre").value;
+  var list = allAdminTitles.filter(function (t) {
+    if (q && t.title.toLowerCase().indexOf(q) === -1) return false;
+    if (typeFilter !== "all" && t.media_type !== typeFilter) return false;
+    if (genreFilter !== "all" && (t.genre_names || []).indexOf(genreFilter) === -1) return false;
+    return true;
+  });
   document.getElementById("adminTitlesCount").textContent = list.length + " из " + allAdminTitles.length;
   var tbody = document.querySelector("#titlesTable tbody");
-  if (!list.length) { tbody.innerHTML = '<tr><td>' + (allAdminTitles.length ? "Ничего не найдено." : "Каталог пока пуст.") + '</td></tr>'; return; }
+  if (!list.length) { tbody.innerHTML = '<tr><td>' + (allAdminTitles.length ? "Ничего не найдено — попробуйте другие фильтры." : "Каталог пока пуст.") + '</td></tr>'; return; }
   tbody.innerHTML = '<tr><th>Название</th><th>Тип</th><th>Год</th><th>Kinopoisk</th><th></th></tr>' + list.map(function (t) {
     return '<tr><td>' + escapeHtml(t.title) + '</td><td>' + (TYPE_LABEL[t.media_type] || t.media_type) + '</td><td>' + (t.year || "—") + '</td>' +
       '<td>' + (t.kp_rating || "—") + '</td>' +
@@ -117,6 +142,8 @@ function renderTitlesTable() {
 }
 
 document.getElementById("adminTitlesSearch").addEventListener("input", renderTitlesTable);
+document.getElementById("adminTitlesType").addEventListener("change", renderTitlesTable);
+document.getElementById("adminTitlesGenre").addEventListener("change", renderTitlesTable);
 
 // ---------- Наполнение библиотеки каталога ----------
 // Разово (и повторно, когда захочется добрать новое) собирает ~1000
@@ -129,22 +156,26 @@ document.getElementById("seedCatalogBtn").addEventListener("click", async functi
   var status = document.getElementById("seedCatalogStatus");
   btn.disabled = true;
   status.hidden = false;
-  status.textContent = "Получаем топ-500 Кинопоиска…";
+  status.textContent = "Ищем недавние премьеры…";
   try {
     var result = await seedPopularCatalog(function (p) {
-      if (p.stage === "top500-done") {
+      if (p.stage === "recent-done") {
+        status.textContent = "Недавние премьеры собраны (" + p.movies + " фильмов, " + p.series + " сериалов) — добираем топ-500 Кинопоиска…";
+      } else if (p.stage === "top500-done") {
         status.textContent = "Топ-500 получен (" + p.movies + " фильмов, " + p.series + " сериалов) — добираем по жанрам…";
       } else if (p.stage === "genres-progress") {
         status.textContent = "Жанр «" + p.genre + "»… собрано " + p.movies + " фильмов, " + p.series + " сериалов";
       } else if (p.stage === "pool-ready") {
         status.textContent = "Список готов (" + p.total + " тайтлов) — сохраняем в каталог…";
       } else if (p.stage === "progress") {
-        status.textContent = "Сохраняем " + p.done + " из " + p.total + " (новых: " + p.added + ", уже было: " + p.skipped + (p.failed ? ", ошибок: " + p.failed : "") + ")…";
+        status.textContent = "Сохраняем " + p.done + " из " + p.total + " (новых: " + p.added + ", уже было: " + p.skipped +
+          (p.excluded ? ", аниме пропущено: " + p.excluded : "") + (p.failed ? ", ошибок: " + p.failed : "") + ")…";
       } else if (p.stage === "error") {
         status.textContent = p.message;
       }
     });
     status.textContent = "Готово: новых тайтлов — " + result.added + ", уже были в каталоге — " + result.skipped +
+      (result.excluded ? ", аниме пропущено — " + result.excluded : "") +
       (result.failed ? ", не удалось загрузить — " + result.failed : "") + ".";
     showStatus("Топ-подборка каталога обновлена");
     loadTitlesPanel();

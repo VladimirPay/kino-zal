@@ -98,7 +98,7 @@
         <span class="count" id="catalogCount"></span>
       </div>
       <nav class="subtabs" id="catalogTypeTabs"></nav>
-      <p class="catalog-hint">Ниже — подборка самых популярных (по числу оценок на Кинопоиске) фильмов и сериалов, поровну. Чтобы найти конкретный фильм или сериал, введите название, нажмите «Искать» и затем «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
+      <p class="catalog-hint">Ниже — подборка самых популярных (по числу оценок на Кинопоиске) фильмов и сериалов, поровну, плюс немного недавних премьер. Аниме в эту подборку не входит — найти его можно через поиск. Чтобы найти конкретный фильм или сериал, введите название, нажмите «Искать» и затем «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
       <main id="catalogGrid" class="grid"></main>
     </section>
 
@@ -187,12 +187,20 @@
 
       <div id="adminPanelTitles" class="admin-panel" hidden>
         <div class="catalog-seed-box">
-          <p class="catalog-hint" style="margin:0 0 8px;">Разово (и повторно — донабирает только новое) наполняет общий каталог примерно тысячей популярных фильмов и сериалов из топа Кинопоиска, чтобы вкладка «Каталог» показывала их всегда, без обращений к ApiGet.ru на каждый визит. Перед первым запуском должна быть выполнена миграция <code>social-upgrade-6.sql</code>.</p>
+          <p class="catalog-hint" style="margin:0 0 8px;">Разово (и повторно — донабирает только новое) наполняет общий каталог примерно тысячей популярных фильмов и сериалов из топа Кинопоиска плюс немного недавних премьер этого и прошлого года, чтобы вкладка «Каталог» показывала их всегда, без обращений к ApiGet.ru на каждый визит. Аниме не добавляется — оно остаётся доступно только через поиск. Перед первым запуском должна быть выполнена миграция <code>social-upgrade-6.sql</code>.</p>
           <button class="btn primary small" id="seedCatalogBtn" type="button">🔥 Обновить топ-подборку каталога</button>
           <p class="mono" id="seedCatalogStatus" style="margin:8px 0 0;font-size:0.82rem;color:var(--muted);" hidden></p>
         </div>
         <div class="toolbar">
           <input id="adminTitlesSearch" type="text" placeholder="Поиск по названию…">
+          <span class="select-wrap"><select id="adminTitlesType" title="Тип">
+            <option value="all">Все типы</option>
+            <option value="movie">Фильмы</option>
+            <option value="tv-series">Сериалы</option>
+          </select></span>
+          <span class="select-wrap"><select id="adminTitlesGenre" title="Жанр">
+            <option value="all">Все жанры</option>
+          </select></span>
           <span class="count" id="adminTitlesCount"></span>
         </div>
         <p class="catalog-hint">Удаление тайтла стирает и все личные статусы, оценки и комментарии к нему у всех пользователей — действие необратимо.</p>

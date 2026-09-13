@@ -142,6 +142,16 @@ function isSeriesMediaType(mediaType) {
   return mediaType === "tv-series" || mediaType === "animated-series" || mediaType === "tv-show";
 }
 
+// Аниме у ApiGet.ru — это не отдельный media_type (raw.type — всегда только
+// "movie"/"serial", см. normalizeApiGetItem), а просто один из жанров в
+// genre_names. Используется в двух местах: loadCatalogDefault скрывает такие
+// тайтлы из подборки по умолчанию, а seedPopularCatalog не даёт им попасть в
+// сохранённую библиотеку — но полноценный явный поиск (searchKp) их не
+// трогает вовсе, аниме остаётся находимым и добавляемым через «Искать».
+function isAnimeGenreList(genreNames) {
+  return (genreNames || []).some(function (g) { return String(g).trim().toLowerCase() === "аниме"; });
+}
+
 function normalizeApiGetItem(raw) {
   var posterUrl = raw.poster_big || raw.poster_small || null;
   var genreNames = Array.isArray(raw.genre) ? raw.genre.filter(Boolean) : [];
@@ -246,10 +256,17 @@ async function searchKp(query) {
 //    просмотр «Каталога» после этого вообще не обращается к ApiGet.ru —
 //    только читает уже оплаченные данные из своей базы, отсортированные по
 //    kp_votes. Живой запрос к ApiGet.ru остаётся только как запасной путь —
-//    на случай, если библиотеку ещё ни разу не наполняли.
+//    на случай, если библиотеку ещё ни разу не наполняли. Аниме из этой
+//    подборки исключается (см. isAnimeGenreList) — оно остаётся доступным
+//    только через явный поиск (searchKp), не через browse по умолчанию.
 var CATALOG_DEFAULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 var CATALOG_POPULAR_HALF = 20; // запасной путь: поровну фильмов и сериалов, итого до 40
 var CATALOG_LIBRARY_LIMIT = 1000;
+// Аниме из подборки по умолчанию отфильтровывается уже ПОСЛЕ выборки из базы
+// (см. isAnimeGenreList) — берём с запасом чуть больше 1000, чтобы после
+// вычитания аниме в подборке всё равно осталось близко к CATALOG_LIBRARY_LIMIT,
+// а не заметно меньше.
+var CATALOG_LIBRARY_FETCH_BUFFER = 200;
 
 function readCatalogDefaultCache() {
   try { return JSON.parse(sessionStorage.getItem("kz_catalog_default_cache") || "null"); } catch (e) { return null; }
@@ -269,11 +286,16 @@ async function loadCatalogDefault() {
   // используем запасной путь ниже, как раньше.
   try {
     var dbRes = await sb.from("titles").select("*").not("kp_id", "is", null)
-      .order("kp_votes", { ascending: false, nullsFirst: false }).limit(CATALOG_LIBRARY_LIMIT);
+      .order("kp_votes", { ascending: false, nullsFirst: false }).limit(CATALOG_LIBRARY_LIMIT + CATALOG_LIBRARY_FETCH_BUFFER);
     if (!dbRes.error && dbRes.data && dbRes.data.length) {
-      state.catalogResults = dbRes.data.map(normalizeKpItemFromTitleRow);
-      applyCatalogSortAndRender();
-      return;
+      // Аниме — не в подборке по умолчанию, только через явный поиск (см.
+      // isAnimeGenreList выше и SEED_EXCLUDE_GENRES у seedPopularCatalog).
+      var nonAnime = dbRes.data.filter(function (t) { return !isAnimeGenreList(t.genre_names); });
+      if (nonAnime.length) {
+        state.catalogResults = nonAnime.slice(0, CATALOG_LIBRARY_LIMIT).map(normalizeKpItemFromTitleRow);
+        applyCatalogSortAndRender();
+        return;
+      }
     }
   } catch (e) { /* библиотека недоступна — падаем в запасной живой путь ниже */ }
 
@@ -309,22 +331,38 @@ async function loadCatalogDefault() {
 // ---------- Наполнение библиотеки каталога (кнопка в Управление → Фильмы) ----------
 // Собирает пул примерно из 1000 популярных тайтлов (до 500 фильмов + до 500
 // сериалов) и сохраняет их в titles навсегда, чтобы loadCatalogDefault выше
-// больше не обращался к ApiGet.ru на обычных визитах в «Каталог». Источники:
-//  1) get-top500 — гарантированно топ по Кинопоиску (20 000+ оценок).
-//  2) Если после топ-500 не набралось по 500 в каждой категории (в топ-500
+// больше не обращался к ApiGet.ru на обычных визитах в «Каталог». Источники,
+// в порядке заполнения пула:
+//  1) «Недавние премьеры» (см. SEED_RECENT_PER_TYPE_TARGET) — search с
+//     фильтром year=текущий/прошлый год, отсортированный по числу голосов.
+//     У ApiGet.ru НЕТ метода «сейчас в тренде» (только get-top500 — весь
+//     рейтинг Кинопоиска за всю историю, там свежий фильм с горсткой оценок
+//     физически не может обойти классику с 20000+ голосов) — это ближайший
+//     доступный заменитель: премьеры этого и прошлого года, отсортированные
+//     по популярности СРЕДИ СЕБЯ. Идёт ПЕРВЫМ шагом и резервирует немного
+//     места в пуле, чтобы топ-500 ниже не вытеснил их полностью.
+//  2) get-top500 — гарантированно топ по Кинопоиску (20 000+ оценок).
+//  3) Если после шагов 1-2 не набралось по 500 в каждой категории (в топ-500
 //     сериалов обычно заметно меньше, чем фильмов) — добираем через search
 //     по жанрам (get-random+genre ломается у ApiGet.ru, см. комментарий выше
 //     в loadCatalogDefault), сортируя каждую жанровую выдачу по числу
 //     голосов (voteCount), а не по средней оценке.
+// Аниме (жанр, не отдельный media_type — см. isAnimeGenreList) сюда
+// сознательно не попадает: жанр в облегчённых списках ApiGet.ru неизвестен
+// заранее, поэтому проверка происходит уже после вставки в worker() ниже —
+// если тайтл оказался аниме, запись сразу удаляется обратно (не в счёт
+// added, отдельным счётчиком excluded).
 // ensureTitleFromKp сам пропускает то, что уже есть в базе (по kp_id+type) —
 // поэтому повторный запуск позже (когда в топе Кинопоиска что-то поменялось)
 // платит только за реально новые тайтлы, а не за всю тысячу заново.
 var SEED_TARGET_PER_TYPE = 500;
 var SEED_CONCURRENCY = 4;
-var SEED_EXCLUDE_GENRES = ["для взрослых", "короткометражка", "реальное тв", "ток-шоу"];
+var SEED_EXCLUDE_GENRES = ["для взрослых", "короткометражка", "реальное тв", "ток-шоу", "аниме"];
 var SEED_FALLBACK_GENRES = ["драма", "комедия", "триллер", "боевик", "ужасы", "криминал", "мультфильм",
   "семейный", "фэнтези", "фантастика", "приключения", "детектив", "история", "биография", "мюзикл",
-  "военный", "вестерн", "спорт", "аниме", "документальный", "мелодрама", "детский"];
+  "военный", "вестерн", "спорт", "документальный", "мелодрама", "детский"];
+var SEED_RECENT_PER_TYPE_TARGET = 60; // сколько слотов из SEED_TARGET_PER_TYPE резервируем под недавние премьеры
+var SEED_RECENT_YEARS_BACK = 1; // 0 = только текущий год, 1 = текущий и прошлый, и т.д.
 
 export async function seedPopularCatalog(onProgress) {
   function report(stage, extra) {
@@ -332,18 +370,36 @@ export async function seedPopularCatalog(onProgress) {
   }
 
   var pool = { movie: new Map(), series: new Map() };
-  function addToPool(it) {
+  function addToPool(it, cap) {
     if (!it.kpId) return;
     var bucket = isSeriesMediaType(it.mediaType) ? pool.series : pool.movie;
     var key = it.mediaType + ":" + it.kpId;
-    if (bucket.has(key) || bucket.size >= SEED_TARGET_PER_TYPE) return;
+    var limit = cap || SEED_TARGET_PER_TYPE;
+    if (bucket.has(key) || bucket.size >= limit) return;
     bucket.set(key, it);
   }
 
   report("start");
+
+  var thisYear = new Date().getFullYear();
+  var recentApiTypes = { movie: "movie", series: "serial" };
+  for (var yBack = 0; yBack <= SEED_RECENT_YEARS_BACK; yBack++) {
+    var year = thisYear - yBack;
+    for (var bucketKey in recentApiTypes) {
+      if (pool[bucketKey].size >= SEED_RECENT_PER_TYPE_TARGET) continue;
+      try {
+        var rres = await kpFetch("search", { year: year, type: recentApiTypes[bucketKey], limit: 100 });
+        (rres.results || []).map(normalizeApiGetItem)
+          .sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); })
+          .forEach(function (it) { addToPool(it, SEED_RECENT_PER_TYPE_TARGET); });
+      } catch (e) { /* пропускаем год/тип — не критично, продолжаем дальше */ }
+    }
+  }
+  report("recent-done", { movies: pool.movie.size, series: pool.series.size });
+
   try {
     var top = await kpFetch("get-top500", { limit: 500 });
-    (top.results || []).map(normalizeApiGetItem).forEach(addToPool);
+    (top.results || []).map(normalizeApiGetItem).forEach(function (it) { addToPool(it); });
   } catch (e) {
     report("error", { message: "Не удалось получить get-top500: " + e.message });
   }
@@ -364,7 +420,7 @@ export async function seedPopularCatalog(onProgress) {
         var gres = await kpFetch("search", { genre: genreNames[gi], limit: 100 });
         (gres.results || []).map(normalizeApiGetItem)
           .sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); })
-          .forEach(addToPool);
+          .forEach(function (it) { addToPool(it); });
       } catch (e) { /* пропускаем один жанр — не критично, продолжаем со следующим */ }
       report("genres-progress", { genre: genreNames[gi], movies: pool.movie.size, series: pool.series.size });
     }
@@ -373,26 +429,36 @@ export async function seedPopularCatalog(onProgress) {
   var candidates = Array.from(pool.movie.values()).concat(Array.from(pool.series.values()));
   report("pool-ready", { total: candidates.length, movies: pool.movie.size, series: pool.series.size });
 
-  var done = 0, added = 0, skipped = 0, failed = 0, idx = 0;
+  var done = 0, added = 0, skipped = 0, excluded = 0, failed = 0, idx = 0;
   async function worker() {
     while (idx < candidates.length) {
       var item = candidates[idx++];
       try {
         var before = await sb.from("titles").select("id").eq("kp_id", item.kpId).eq("media_type", item.mediaType).limit(1);
         var existed = !!(before.data && before.data.length);
-        await ensureTitleFromKp(item);
-        if (existed) skipped++; else added++;
+        var row = await ensureTitleFromKp(item);
+        if (existed) {
+          skipped++;
+        } else if (isAnimeGenreList(row.genre_names)) {
+          // Жанр становится известен только после get-info внутри
+          // ensureTitleFromKp (в облегчённых списках его нет) — поэтому
+          // аниме отфильтровывается уже здесь, постфактум.
+          await sb.from("titles").delete().eq("id", row.id);
+          excluded++;
+        } else {
+          added++;
+        }
       } catch (e) { failed++; }
       done++;
-      report("progress", { done: done, total: candidates.length, added: added, skipped: skipped, failed: failed, title: item.title });
+      report("progress", { done: done, total: candidates.length, added: added, skipped: skipped, excluded: excluded, failed: failed, title: item.title });
     }
   }
   var workers = [];
   for (var w = 0; w < SEED_CONCURRENCY; w++) workers.push(worker());
   await Promise.all(workers);
 
-  report("done", { done: done, total: candidates.length, added: added, skipped: skipped, failed: failed });
-  return { total: candidates.length, added: added, skipped: skipped, failed: failed };
+  report("done", { done: done, total: candidates.length, added: added, skipped: skipped, excluded: excluded, failed: failed });
+  return { total: candidates.length, added: added, skipped: skipped, excluded: excluded, failed: failed };
 }
 
 registerSectionLoader("catalog", function () {
