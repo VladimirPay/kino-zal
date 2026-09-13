@@ -2,10 +2,24 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Наш Кинозал</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Serif+4:ital,wght@0,400;0,600;1,500&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="styles.css">
+<!-- PWA: делает сайт устанавливаемым на телефон («Добавить на экран») —
+     см. manifest.webmanifest, sw.js (регистрация в js/main.js) и iconы в
+     папке icons/. theme-color окрашивает системную строку состояния/адресную
+     строку браузера под тему сайта (тёмная — основная, светлая — если у
+     системы явно включена светлая тема). -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#161210">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Кинозал">
 </head>
 <body>
 <div id="app-shell">
@@ -172,6 +186,11 @@
       </div>
 
       <div id="adminPanelTitles" class="admin-panel" hidden>
+        <div class="catalog-seed-box">
+          <p class="catalog-hint" style="margin:0 0 8px;">Разово (и повторно — донабирает только новое) наполняет общий каталог примерно тысячей популярных фильмов и сериалов из топа Кинопоиска, чтобы вкладка «Каталог» показывала их всегда, без обращений к ApiGet.ru на каждый визит. Перед первым запуском должна быть выполнена миграция <code>social-upgrade-6.sql</code>.</p>
+          <button class="btn primary small" id="seedCatalogBtn" type="button">🔥 Обновить топ-подборку каталога</button>
+          <p class="mono" id="seedCatalogStatus" style="margin:8px 0 0;font-size:0.82rem;color:var(--muted);" hidden></p>
+        </div>
         <div class="toolbar">
           <input id="adminTitlesSearch" type="text" placeholder="Поиск по названию…">
           <span class="count" id="adminTitlesCount"></span>

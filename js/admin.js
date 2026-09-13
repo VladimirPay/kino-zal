@@ -20,6 +20,7 @@ import { state } from "./state.js";
 import { ADMIN_TABS, TYPE_LABEL } from "./config.js";
 import { escapeHtml, fmtTime, showStatus } from "./utils.js";
 import { registerSectionLoader } from "./router.js";
+import { seedPopularCatalog } from "./catalog.js";
 
 var activeAdminTab = "users";
 var allAdminTitles = [];
@@ -116,6 +117,43 @@ function renderTitlesTable() {
 }
 
 document.getElementById("adminTitlesSearch").addEventListener("input", renderTitlesTable);
+
+// ---------- Наполнение библиотеки каталога ----------
+// Разово (и повторно, когда захочется добрать новое) собирает ~1000
+// популярных тайтлов и сохраняет их в titles — см. seedPopularCatalog в
+// catalog.js. Работает прямо в этой вкладке админа, в фоне это может занять
+// несколько минут (платные запросы к ApiGet.ru, поэтому есть троттлинг) —
+// прогресс виден ниже кнопки.
+document.getElementById("seedCatalogBtn").addEventListener("click", async function () {
+  var btn = this;
+  var status = document.getElementById("seedCatalogStatus");
+  btn.disabled = true;
+  status.hidden = false;
+  status.textContent = "Получаем топ-500 Кинопоиска…";
+  try {
+    var result = await seedPopularCatalog(function (p) {
+      if (p.stage === "top500-done") {
+        status.textContent = "Топ-500 получен (" + p.movies + " фильмов, " + p.series + " сериалов) — добираем по жанрам…";
+      } else if (p.stage === "genres-progress") {
+        status.textContent = "Жанр «" + p.genre + "»… собрано " + p.movies + " фильмов, " + p.series + " сериалов";
+      } else if (p.stage === "pool-ready") {
+        status.textContent = "Список готов (" + p.total + " тайтлов) — сохраняем в каталог…";
+      } else if (p.stage === "progress") {
+        status.textContent = "Сохраняем " + p.done + " из " + p.total + " (новых: " + p.added + ", уже было: " + p.skipped + (p.failed ? ", ошибок: " + p.failed : "") + ")…";
+      } else if (p.stage === "error") {
+        status.textContent = p.message;
+      }
+    });
+    status.textContent = "Готово: новых тайтлов — " + result.added + ", уже были в каталоге — " + result.skipped +
+      (result.failed ? ", не удалось загрузить — " + result.failed : "") + ".";
+    showStatus("Топ-подборка каталога обновлена");
+    loadTitlesPanel();
+  } catch (e) {
+    status.textContent = "Не удалось обновить подборку: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // ---------- Лимиты API ----------
 async function loadApiLimitsPanel() {

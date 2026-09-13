@@ -233,17 +233,23 @@ async function searchKp(query) {
 //    поднимает наверх тайтлы с высокой оценкой, но ОЧЕНЬ малым числом
 //    голосов (условно 9.3 при 40 оценках) — формально «рейтинг выше», а
 //    по факту почти никто не смотрел.
-// 4) ТЕКУЩИЙ ПОДХОД — get-top500: собственный топ Кинопоиска у ApiGet.ru
-//    (входят только тайтлы с 20 000+ оценок — это и есть реальная
-//    «известность», а не случайная малая выборка). Берём топ-500 ОДНИМ
-//    запросом (дешевле шести!), делим на фильмы/сериалы и сортируем КАЖДУЮ
-//    группу по числу голосов (voteCount) — это и есть настоящая
-//    «популярность» (много кто посмотрел и оценил), в отличие от голой
-//    средней оценки, которую легко натянуть маленькой но активной
-//    аудиторией. Затем берём поровну топ-фильмов и топ-сериалов, чтобы в
-//    подборке не оказалось перекоса в одну сторону.
+// 4) get-top500 живьём при каждом открытии вкладки (кэш 6 часов) —
+//    собственный топ Кинопоиска у ApiGet.ru (входят только тайтлы с
+//    20 000+ оценок), поделённый поровну на фильмы/сериалы. Работало, но
+//    каждый сеанс браузера заново платил за get-top500, а показывало
+//    только 40 карточек за раз.
+// 5) ТЕКУЩИЙ ПОДХОД — читаем из СВОЕЙ базы (titles), а не у ApiGet.ru.
+//    Библиотека наполняется заранее (разово и периодически) кнопкой
+//    «Обновить топ-подборку каталога» в разделе Управление → Фильмы (см.
+//    seedPopularCatalog ниже) — она платит за get-info один раз на тайтл и
+//    сохраняет kp_votes (число оценок на Кинопоиске) навсегда. Обычный
+//    просмотр «Каталога» после этого вообще не обращается к ApiGet.ru —
+//    только читает уже оплаченные данные из своей базы, отсортированные по
+//    kp_votes. Живой запрос к ApiGet.ru остаётся только как запасной путь —
+//    на случай, если библиотеку ещё ни разу не наполняли.
 var CATALOG_DEFAULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-var CATALOG_POPULAR_HALF = 20; // поровну фильмов и сериалов, итого до 40
+var CATALOG_POPULAR_HALF = 20; // запасной путь: поровну фильмов и сериалов, итого до 40
+var CATALOG_LIBRARY_LIMIT = 1000;
 
 function readCatalogDefaultCache() {
   try { return JSON.parse(sessionStorage.getItem("kz_catalog_default_cache") || "null"); } catch (e) { return null; }
@@ -255,13 +261,28 @@ function writeCatalogDefaultCache(items) {
 async function loadCatalogDefault() {
   state.catalogMode = "browse";
   document.getElementById("catalogSearch").value = "";
+  document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Загружаем подборку…</p>';
+
+  // Сначала — своя библиотека (без единого обращения к ApiGet.ru). Если
+  // миграция social-upgrade-6.sql ещё не выполнена (нет колонки kp_votes)
+  // или библиотеку ещё ни разу не наполняли — просто уходим в try/catch и
+  // используем запасной путь ниже, как раньше.
+  try {
+    var dbRes = await sb.from("titles").select("*").not("kp_id", "is", null)
+      .order("kp_votes", { ascending: false, nullsFirst: false }).limit(CATALOG_LIBRARY_LIMIT);
+    if (!dbRes.error && dbRes.data && dbRes.data.length) {
+      state.catalogResults = dbRes.data.map(normalizeKpItemFromTitleRow);
+      applyCatalogSortAndRender();
+      return;
+    }
+  } catch (e) { /* библиотека недоступна — падаем в запасной живой путь ниже */ }
+
   var cache = readCatalogDefaultCache();
   if (cache && (Date.now() - cache.fetchedAt) < CATALOG_DEFAULT_CACHE_TTL_MS) {
     state.catalogResults = cache.items;
     applyCatalogSortAndRender();
     return;
   }
-  document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Загружаем подборку…</p>';
   try {
     var res = await kpFetch("get-top500", { limit: 500 });
     var items = (res.results || []).map(normalizeApiGetItem);
@@ -283,6 +304,95 @@ async function loadCatalogDefault() {
     showStatus("Не удалось загрузить подборку из ApiGet.ru: " + e.message, true);
   }
   applyCatalogSortAndRender();
+}
+
+// ---------- Наполнение библиотеки каталога (кнопка в Управление → Фильмы) ----------
+// Собирает пул примерно из 1000 популярных тайтлов (до 500 фильмов + до 500
+// сериалов) и сохраняет их в titles навсегда, чтобы loadCatalogDefault выше
+// больше не обращался к ApiGet.ru на обычных визитах в «Каталог». Источники:
+//  1) get-top500 — гарантированно топ по Кинопоиску (20 000+ оценок).
+//  2) Если после топ-500 не набралось по 500 в каждой категории (в топ-500
+//     сериалов обычно заметно меньше, чем фильмов) — добираем через search
+//     по жанрам (get-random+genre ломается у ApiGet.ru, см. комментарий выше
+//     в loadCatalogDefault), сортируя каждую жанровую выдачу по числу
+//     голосов (voteCount), а не по средней оценке.
+// ensureTitleFromKp сам пропускает то, что уже есть в базе (по kp_id+type) —
+// поэтому повторный запуск позже (когда в топе Кинопоиска что-то поменялось)
+// платит только за реально новые тайтлы, а не за всю тысячу заново.
+var SEED_TARGET_PER_TYPE = 500;
+var SEED_CONCURRENCY = 4;
+var SEED_EXCLUDE_GENRES = ["для взрослых", "короткометражка", "реальное тв", "ток-шоу"];
+var SEED_FALLBACK_GENRES = ["драма", "комедия", "триллер", "боевик", "ужасы", "криминал", "мультфильм",
+  "семейный", "фэнтези", "фантастика", "приключения", "детектив", "история", "биография", "мюзикл",
+  "военный", "вестерн", "спорт", "аниме", "документальный", "мелодрама", "детский"];
+
+export async function seedPopularCatalog(onProgress) {
+  function report(stage, extra) {
+    if (onProgress) { try { onProgress(Object.assign({ stage: stage }, extra || {})); } catch (e) {} }
+  }
+
+  var pool = { movie: new Map(), series: new Map() };
+  function addToPool(it) {
+    if (!it.kpId) return;
+    var bucket = isSeriesMediaType(it.mediaType) ? pool.series : pool.movie;
+    var key = it.mediaType + ":" + it.kpId;
+    if (bucket.has(key) || bucket.size >= SEED_TARGET_PER_TYPE) return;
+    bucket.set(key, it);
+  }
+
+  report("start");
+  try {
+    var top = await kpFetch("get-top500", { limit: 500 });
+    (top.results || []).map(normalizeApiGetItem).forEach(addToPool);
+  } catch (e) {
+    report("error", { message: "Не удалось получить get-top500: " + e.message });
+  }
+  report("top500-done", { movies: pool.movie.size, series: pool.series.size });
+
+  if (pool.movie.size < SEED_TARGET_PER_TYPE || pool.series.size < SEED_TARGET_PER_TYPE) {
+    var genreNames = SEED_FALLBACK_GENRES;
+    try {
+      var gRes = await kpFetch("get-genres", {});
+      var fetched = (gRes.genres || []).map(function (g) { return g.name; })
+        .filter(function (name) { return name && SEED_EXCLUDE_GENRES.indexOf(name.toLowerCase()) === -1; });
+      if (fetched.length) genreNames = fetched;
+    } catch (e) { /* используем запасной список жанров выше */ }
+
+    for (var gi = 0; gi < genreNames.length; gi++) {
+      if (pool.movie.size >= SEED_TARGET_PER_TYPE && pool.series.size >= SEED_TARGET_PER_TYPE) break;
+      try {
+        var gres = await kpFetch("search", { genre: genreNames[gi], limit: 100 });
+        (gres.results || []).map(normalizeApiGetItem)
+          .sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); })
+          .forEach(addToPool);
+      } catch (e) { /* пропускаем один жанр — не критично, продолжаем со следующим */ }
+      report("genres-progress", { genre: genreNames[gi], movies: pool.movie.size, series: pool.series.size });
+    }
+  }
+
+  var candidates = Array.from(pool.movie.values()).concat(Array.from(pool.series.values()));
+  report("pool-ready", { total: candidates.length, movies: pool.movie.size, series: pool.series.size });
+
+  var done = 0, added = 0, skipped = 0, failed = 0, idx = 0;
+  async function worker() {
+    while (idx < candidates.length) {
+      var item = candidates[idx++];
+      try {
+        var before = await sb.from("titles").select("id").eq("kp_id", item.kpId).eq("media_type", item.mediaType).limit(1);
+        var existed = !!(before.data && before.data.length);
+        await ensureTitleFromKp(item);
+        if (existed) skipped++; else added++;
+      } catch (e) { failed++; }
+      done++;
+      report("progress", { done: done, total: candidates.length, added: added, skipped: skipped, failed: failed, title: item.title });
+    }
+  }
+  var workers = [];
+  for (var w = 0; w < SEED_CONCURRENCY; w++) workers.push(worker());
+  await Promise.all(workers);
+
+  report("done", { done: done, total: candidates.length, added: added, skipped: skipped, failed: failed });
+  return { total: candidates.length, added: added, skipped: skipped, failed: failed };
 }
 
 registerSectionLoader("catalog", function () {
@@ -470,8 +580,8 @@ async function ensureTitleFromKp(item) {
   const payload = {
     kp_id: full.kpId, media_type: full.mediaType, title: full.title, year: full.year,
     genre: full.genre, genre_names: full.genreNames || [], overview: full.overview,
-    poster_url: full.posterUrl, kp_rating: full.voteAverage, trailer_url: full.trailerUrl || null,
-    added_by: state.myProfile.id
+    poster_url: full.posterUrl, kp_rating: full.voteAverage, kp_votes: full.voteCount || null,
+    trailer_url: full.trailerUrl || null, added_by: state.myProfile.id
   };
   const ins = await sb.from("titles").insert(payload).select().limit(1);
   if (ins.error) {
@@ -577,7 +687,7 @@ function normalizeKpItemFromTitleRow(t) {
   return {
     kpId: t.kp_id, mediaType: t.media_type, title: t.title, year: parseYearValue(t.year),
     genreNames: t.genre_names || [], genre: t.genre, overview: t.overview,
-    posterUrl: t.poster_url, voteAverage: t.kp_rating
+    posterUrl: t.poster_url, voteAverage: t.kp_rating, voteCount: t.kp_votes || null
   };
 }
 
