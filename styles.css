@@ -47,7 +47,7 @@ nav.tabs .n,nav.sections .n{font-family:'JetBrains Mono',monospace;font-size:0.7
 .toolbar input{flex:1;min-width:160px;font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--ink);}
 .toolbar .count{color:var(--muted);font-size:0.85rem;white-space:nowrap;}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px 16px;cursor:pointer;position:relative;border-left-width:5px;box-shadow:0 6px 16px -14px var(--shadow);display:flex;flex-direction:column;gap:6px;min-height:150px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px 16px;cursor:pointer;position:relative;border-left-width:5px;box-shadow:0 6px 16px -14px var(--shadow);display:flex;flex-direction:column;gap:6px;min-height:150px;overflow:hidden;}
 .card:hover{border-color:var(--accent);}
 .card.has-poster{padding-top:0;}
 .card .poster-wrap{margin:-14px -14px 4px -16px;}
@@ -149,6 +149,8 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 .dm-list-item .preview{color:var(--muted);font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dm-list-item .unread{background:var(--accent-2);color:#fff;border-radius:20px;font-size:0.68rem;padding:1px 7px;font-family:'JetBrains Mono',monospace;flex:none;}
 .dm-empty{color:var(--muted);font-style:italic;padding:20px;text-align:center;}
+.dm-thread-head{padding:9px 12px;border-bottom:1px solid var(--border);}
+.dm-thread-head .btn{font-size:0.9rem;padding:0;}
 
 /* Friends */
 .section-h{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:0.03em;margin:22px 0 8px;}
@@ -166,3 +168,60 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 .achv{border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:0.8rem;background:var(--surface-2);}
 .achv.locked{opacity:0.4;}
 .toggle-row{display:flex;align-items:center;gap:8px;font-size:0.9rem;margin:14px 0;}
+
+/* ===== Анимации интерфейса =====
+   Лёгкие переходы и появления, чтобы сайт ощущался более современным:
+   плавная смена цвета/фона при наведении — это безопасно и не отключается;
+   всё, что ДВИГАЕТ элементы (наезд, появление, покачивание диалогов) —
+   отключается автоматически, если в системе включено "уменьшить движение"
+   (prefers-reduced-motion), из уважения к людям, которых укачивает от
+   анимаций. */
+.btn, .card, .rec-card, .subtabs button, nav.sections button, nav.tabs button,
+.status-pill, .badge, .dm-list-item, .friend-row, .like-btn, .auth-tabs button, .fab {
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .card, .rec-card, .fab {
+    transition-property: background-color, border-color, color, box-shadow, transform;
+    transition-duration: .16s;
+    transition-timing-function: ease;
+  }
+  .btn:hover:not(:disabled){ transform: translateY(-1px); }
+  .btn:active:not(:disabled){ transform: translateY(0) scale(0.97); }
+  .card:hover{ transform: translateY(-4px); box-shadow: 0 16px 30px -18px var(--shadow); }
+  .rec-card:hover{ transform: translateY(-3px); }
+  .fab:hover{ transform: translateY(-2px); }
+
+  /* Появление вкладки/секции и всего личного кабинета после входа */
+  .section:not([hidden]){ animation: kzFadeSlideUp .35s ease; }
+  #mainApp:not([hidden]){ animation: kzFadeIn .4s ease; }
+
+  /* Всплывающее уведомление статуса */
+  #statusBanner:not([hidden]){ animation: kzBannerIn .3s ease; }
+
+  /* Диалоги (карточка тайтла, профиль, управление и т.д.) */
+  dialog[open]{ animation: kzDialogIn .22s cubic-bezier(.2,.8,.3,1); }
+  dialog::backdrop{ animation: kzBackdropIn .22s ease; }
+
+  /* Карточки в сетке и в ленте рекомендаций появляются с лёгким сдвигом
+     вверх и небольшим "веером" по задержке — так список не возникает одним
+     плоским блоком */
+  .grid .card, .rec-strip .rec-card{ animation: kzCardIn .4s ease both; }
+  .grid .card:nth-child(1), .rec-strip .rec-card:nth-child(1){ animation-delay: .02s; }
+  .grid .card:nth-child(2), .rec-strip .rec-card:nth-child(2){ animation-delay: .05s; }
+  .grid .card:nth-child(3), .rec-strip .rec-card:nth-child(3){ animation-delay: .08s; }
+  .grid .card:nth-child(4), .rec-strip .rec-card:nth-child(4){ animation-delay: .11s; }
+  .grid .card:nth-child(5), .rec-strip .rec-card:nth-child(5){ animation-delay: .14s; }
+  .grid .card:nth-child(6), .rec-strip .rec-card:nth-child(6){ animation-delay: .17s; }
+  .grid .card:nth-child(7), .rec-strip .rec-card:nth-child(7){ animation-delay: .20s; }
+  .grid .card:nth-child(8), .rec-strip .rec-card:nth-child(8){ animation-delay: .23s; }
+  .grid .card:nth-child(n+9), .rec-strip .rec-card:nth-child(n+9){ animation-delay: .26s; }
+}
+
+@keyframes kzFadeSlideUp{ from{ opacity:0; transform: translateY(10px); } to{ opacity:1; transform: translateY(0); } }
+@keyframes kzFadeIn{ from{ opacity:0; } to{ opacity:1; } }
+@keyframes kzBannerIn{ from{ opacity:0; transform: translateY(-8px); } to{ opacity:1; transform: translateY(0); } }
+@keyframes kzDialogIn{ from{ opacity:0; transform: translateY(14px) scale(.97); } to{ opacity:1; transform: translateY(0) scale(1); } }
+@keyframes kzBackdropIn{ from{ opacity:0; } to{ opacity:1; } }
+@keyframes kzCardIn{ from{ opacity:0; transform: translateY(8px); } to{ opacity:1; transform: translateY(0); } }

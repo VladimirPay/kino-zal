@@ -68,10 +68,13 @@
     <!-- ===== Каталог ===== -->
     <section id="section-catalog" class="section" hidden>
       <div class="toolbar">
-        <input id="catalogSearch" type="text" placeholder="Название фильма или сериала…">
+        <form id="catalogSearchForm" style="display:contents;">
+          <input id="catalogSearch" type="text" placeholder="Название фильма или сериала…">
+          <button class="btn primary" type="submit">Искать</button>
+        </form>
         <span class="count" id="catalogCount"></span>
       </div>
-      <p class="catalog-hint">Данные предоставлены Kinopoisk.dev. Найдите тайтл и нажмите «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
+      <p class="catalog-hint">Данные предоставлены Kinopoisk.dev. Введите название, нажмите «Искать», найдите тайтл и нажмите «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
       <main id="catalogGrid" class="grid"></main>
       <p class="api-note">Бесплатный тариф Kinopoisk.dev ограничен 200 запросами в день на весь сайт — этого обычно с запасом хватает для компании друзей.</p>
     </section>
@@ -99,6 +102,7 @@
           <div id="dmListItems"></div>
         </div>
         <div class="chat-box dm-thread" id="dmThread">
+          <div class="dm-thread-head" id="dmThreadHead" hidden></div>
           <div class="chat-log" id="dmLog"></div>
           <form class="chat-input-row" id="dmForm">
             <input id="dmInput" type="text" maxlength="1000" placeholder="Сообщение…" autocomplete="off">
@@ -131,8 +135,41 @@
       <div id="friendsFeed"><p class="empty-note">Пока тихо.</p></div>
     </section>
 
+    <!-- ===== Управление (только для админов) ===== -->
+    <section id="section-admin" class="section" hidden>
+      <nav class="subtabs" id="adminTabs"></nav>
+
+      <div id="adminPanelUsers" class="admin-panel" hidden>
+        <p class="catalog-hint">Выдать или снять права администратора. Личные списки пользователей (что и в каком статусе у них отмечено) приватны и не показываются даже администратору.</p>
+        <table class="users-table" id="usersTable"><tbody></tbody></table>
+      </div>
+
+      <div id="adminPanelTitles" class="admin-panel" hidden>
+        <div class="toolbar">
+          <input id="adminTitlesSearch" type="text" placeholder="Поиск по названию…">
+          <span class="count" id="adminTitlesCount"></span>
+        </div>
+        <p class="catalog-hint">Удаление тайтла стирает и все личные статусы, оценки и комментарии к нему у всех пользователей — действие необратимо.</p>
+        <table class="users-table" id="titlesTable"><tbody></tbody></table>
+      </div>
+
+      <div id="adminPanelApi" class="admin-panel" hidden>
+        <div id="apiLimitsSummary"></div>
+        <table class="users-table" id="apiLimitsTable"><tbody></tbody></table>
+      </div>
+
+      <div id="adminPanelLog" class="admin-panel" hidden>
+        <p class="catalog-hint">Строка кликабельна — раскрывает подробности изменения. Журнал пишется автоматически на уровне базы данных и не зависит от сайта.</p>
+        <table class="users-table" id="activityLogTable"><tbody></tbody></table>
+      </div>
+    </section>
+
     <dialog id="detailDialog">
       <div class="dialog-inner" id="detailInner"></div>
+    </dialog>
+
+    <dialog id="userCardDialog">
+      <div class="dialog-inner"></div>
     </dialog>
 
     <dialog id="profileDialog">
@@ -164,15 +201,6 @@
         <div class="dialog-actions" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
           <button class="btn danger small" id="signOutBtn" type="button">Выйти из аккаунта</button>
         </div>
-      </div>
-    </dialog>
-
-    <dialog id="adminDialog">
-      <div class="dialog-inner">
-        <button class="close-x" data-close="adminDialog">✕</button>
-        <h2>Пользователи</h2>
-        <p style="color:var(--muted);font-size:0.85rem;">Здесь можно выдать или снять права администратора. Личные списки пользователей (что и в каком статусе у них отмечено) приватны и не показываются даже администратору.</p>
-        <table class="users-table" id="usersTable"><tbody></tbody></table>
       </div>
     </dialog>
   </div>
