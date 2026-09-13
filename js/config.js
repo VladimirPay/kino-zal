@@ -12,7 +12,7 @@ export const KP_TYPES = ["movie", "tv-series", "cartoon", "anime", "animated-ser
 export const SECTIONS = [
   {key: "mylist", label: "Мой список"},
   {key: "catalog", label: "Каталог"},
-  {key: "match", label: "Матч"},
+  {key: "match", label: "Мэтч"},
   {key: "chat", label: "Чат"},
   {key: "messages", label: "Сообщения"},
   {key: "friends", label: "Друзья"},
@@ -31,6 +31,7 @@ export const STATUS_LABEL = {want: "Хочу посмотреть", watching: "�
 export const ADMIN_TABS = [
   {key: "users", label: "Пользователи"},
   {key: "titles", label: "Фильмы"},
+  {key: "reports", label: "Жалобы"},
   {key: "apiLimits", label: "Лимиты API"},
   {key: "activityLog", label: "Журнал действий"}
 ];

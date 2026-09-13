@@ -10,7 +10,12 @@ import { bindClose, escapeHtml, showStatus } from "./utils.js";
 import { showSection } from "./router.js";
 import { openDmThread } from "./messages.js";
 
+// Открыта ли (и для какого userId) форма жалобы внутри карточки — простое
+// поле модуля, сбрасывается при каждом новом открытии карточки (см. ниже).
+var reportFormOpenForUserId = null;
+
 export async function openUserCard(userId) {
+  reportFormOpenForUserId = null;
   var dlg = document.getElementById("userCardDialog");
   var inner = dlg.querySelector(".dialog-inner");
   inner.innerHTML = '<button class="close-x" data-close="userCardDialog">✕</button><p class="empty-note">Загрузка…</p>';
@@ -64,12 +69,31 @@ async function renderUserCard(userId) {
     actionsHtml = '<div class="dialog-actions" style="justify-content:flex-start;margin-top:14px;"><button class="btn small primary" id="ucAddBtn" type="button">Добавить в друзья</button></div>';
   }
 
+  // «Пожаловаться» — доступно на любую чужую карточку независимо от статуса
+  // дружбы. Жалоба видна автору и администратору (см. admin.js, вкладка
+  // «Жалобы»), самому пользователю, на которого жалуются, — нет.
+  var reportHtml = "";
+  if (!isMe) {
+    var reportOpen = reportFormOpenForUserId === userId;
+    reportHtml =
+      '<div class="dialog-actions" style="justify-content:flex-start;margin-top:8px;">' +
+        '<button class="btn linklike small" id="ucReportBtn" type="button">' + (reportOpen ? "отмена" : "🚩 Пожаловаться") + '</button>' +
+      '</div>' +
+      (reportOpen
+        ? '<form id="ucReportForm" style="margin-top:2px;display:flex;flex-direction:column;gap:8px;">' +
+            '<textarea id="ucReportReason" placeholder="Опишите причину жалобы…" rows="3" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);font:inherit;resize:vertical;"></textarea>' +
+            '<div><button class="btn small danger" type="submit">Отправить жалобу</button></div>' +
+          '</form>'
+        : '');
+  }
+
   inner.innerHTML =
     '<button class="close-x" data-close="userCardDialog">✕</button>' +
     '<h2>' + escapeHtml(p.display_name) + '</h2>' +
     (p.role === "admin" ? '<span class="role-badge">администратор</span>' : '') +
     (p.bio ? '<p class="detail-note">' + escapeHtml(p.bio) + '</p>' : '<p class="catalog-hint" style="margin:8px 0 0;">Пользователь пока ничего не написал о себе.</p>') +
-    actionsHtml;
+    actionsHtml +
+    reportHtml;
   bindClose(inner);
 
   var addBtn = inner.querySelector("#ucAddBtn");
@@ -101,5 +125,21 @@ async function renderUserCard(userId) {
     dlg.close();
     showSection("messages");
     openDmThread(userId);
+  });
+  var reportBtn = inner.querySelector("#ucReportBtn");
+  if (reportBtn) reportBtn.addEventListener("click", function () {
+    reportFormOpenForUserId = (reportFormOpenForUserId === userId) ? null : userId;
+    renderUserCard(userId);
+  });
+  var reportForm = inner.querySelector("#ucReportForm");
+  if (reportForm) reportForm.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    var reason = document.getElementById("ucReportReason").value.trim();
+    if (!reason) { showStatus("Опишите причину жалобы", true); return; }
+    const { error } = await sb.from("user_reports").insert({ reporter_id: state.myProfile.id, reported_id: userId, reason: reason });
+    if (error) { showStatus("Не удалось отправить жалобу: " + error.message, true); return; }
+    reportFormOpenForUserId = null;
+    showStatus("Жалоба отправлена администратору");
+    renderUserCard(userId);
   });
 }

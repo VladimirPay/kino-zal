@@ -478,9 +478,71 @@ registerSectionLoader("catalog", function () {
   // Не сбрасываем молча уже показанный активный поиск (например, если
   // человек что-то искал, ушёл на другую вкладку и вернулся обратно) —
   // подборка по умолчанию грузится только если каталог сейчас пуст и это не
-  // осознанный поиск с нулевым результатом.
-  if (!state.catalogResults.length && state.catalogMode !== "search") loadCatalogDefault();
+  // осознанный поиск с нулевым результатом (и не подборка «Популярное у
+  // пользователей» — там пустой результат означает "пока никто ничего не
+  // оценил", а не "нужно тут же подменить обычной подборкой").
+  if (!state.catalogResults.length && state.catalogMode !== "search" && state.catalogMode !== "community") loadCatalogDefault();
 });
+
+// ---------- «Популярное у пользователей» ----------
+// Отдельный от обычной подборки источник данных: не библиотека по числу
+// оценок на Кинопоиске, а тайтлы, с которыми реально взаимодействовали
+// пользователи САЙТА — поставили оценку и/или написали комментарий (ratings
+// и comments — единственные таблицы взаимодействия с тайтлом, открытые на
+// чтение всем авторизованным; user_titles приватна и не годится как сигнал).
+// Порядок — не обычная сортировка, а сама выборка: сначала то, с чем
+// взаимодействовали недавнее (по дате последней оценки/комментария к
+// тайтлу). sortCatalogResults() ниже не имеет отдельной ветки для этого
+// режима, поэтому она этот порядок не трогает.
+async function loadCommunityPopular() {
+  state.catalogMode = "community";
+  document.getElementById("catalogSearch").value = "";
+  document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Загружаем подборку…</p>';
+
+  const [ratingsRes, commentsRes] = await Promise.all([
+    sb.from("ratings").select("title_id,created_at"),
+    sb.from("comments").select("title_id,created_at")
+  ]);
+  if (ratingsRes.error || commentsRes.error) {
+    state.catalogResults = [];
+    showStatus("Не удалось загрузить подборку «Популярное у пользователей»: " + (ratingsRes.error || commentsRes.error).message, true);
+    applyCatalogSortAndRender();
+    return;
+  }
+
+  var latest = {}; // id тайтла -> метка времени самого свежего взаимодействия
+  function bump(titleId, at) {
+    var ts = new Date(at).getTime();
+    if (!latest[titleId] || ts > latest[titleId]) latest[titleId] = ts;
+  }
+  (ratingsRes.data || []).forEach(function (r) { bump(r.title_id, r.created_at); });
+  (commentsRes.data || []).forEach(function (c) { bump(c.title_id, c.created_at); });
+
+  var ids = Object.keys(latest).map(Number);
+  if (!ids.length) {
+    state.catalogResults = [];
+    applyCatalogSortAndRender();
+    return;
+  }
+  var dbRes = await sb.from("titles").select("*").in("id", ids);
+  if (dbRes.error) {
+    state.catalogResults = [];
+    showStatus("Не удалось загрузить подборку: " + dbRes.error.message, true);
+    applyCatalogSortAndRender();
+    return;
+  }
+  // Метку взаимодействия нужно снять с исходной строки titles ДО
+  // normalizeKpItemFromTitleRow — та не сохраняет id из базы (весь остальной
+  // каталог всегда пересобирает тайтл по kpId+mediaType).
+  var items = (dbRes.data || []).map(function (t) {
+    var item = normalizeKpItemFromTitleRow(t);
+    item.__interactionAt = latest[t.id] || 0;
+    return item;
+  });
+  items.sort(function (a, b) { return b.__interactionAt - a.__interactionAt; });
+  state.catalogResults = items;
+  applyCatalogSortAndRender();
+}
 
 // ---------- Сортировка (полностью на клиенте, без обращений к ApiGet.ru) ----------
 function sortCatalogResults() {
@@ -510,7 +572,16 @@ function applyCatalogSortAndRender() {
 }
 document.getElementById("catalogSort").addEventListener("change", function () {
   document.getElementById("catalogShuffleBtn").hidden = (this.value !== "shuffle");
-  applyCatalogSortAndRender();
+  if (this.value === "community") {
+    loadCommunityPopular();
+  } else if (state.catalogMode === "community") {
+    // Уходим из «Популярное у пользователей» обычным сортировкам — та
+    // подборка была специально ограничена только тайтлами с оценками/
+    // комментариями, для остальных сортировок нужна обычная библиотека.
+    loadCatalogDefault();
+  } else {
+    applyCatalogSortAndRender();
+  }
 });
 document.getElementById("catalogShuffleBtn").addEventListener("click", function () {
   applyCatalogSortAndRender();
@@ -575,9 +646,12 @@ function renderCatalogGrid() {
     ? visible.length + " " + pluralRu(visible.length, ["результат", "результата", "результатов"])
     : "";
   if (!state.catalogResults.length) {
-    grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">' +
-      (state.catalogMode === "search" ? "Ничего не нашлось — попробуйте другой запрос." : "Не удалось загрузить подборку — попробуйте открыть вкладку заново чуть позже.") +
-      '</p>';
+    var emptyMsg = state.catalogMode === "search"
+      ? "Ничего не нашлось — попробуйте другой запрос."
+      : state.catalogMode === "community"
+        ? "Пока никто из пользователей не оценил и не прокомментировал ни один фильм или сериал — как только это произойдёт, подборка появится здесь."
+        : "Не удалось загрузить подборку — попробуйте открыть вкладку заново чуть позже.";
+    grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">' + emptyMsg + '</p>';
     return;
   }
   if (!visible.length) {

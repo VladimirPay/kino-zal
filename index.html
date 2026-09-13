@@ -93,6 +93,7 @@
           <option value="year">📅 Сначала новые</option>
           <option value="alpha">🔤 По алфавиту</option>
           <option value="shuffle">🎲 Перемешать</option>
+          <option value="community">👥 Популярное у пользователей</option>
         </select></span>
         <button class="btn" id="catalogShuffleBtn" type="button" hidden title="Перемешать ещё раз">🎲</button>
         <span class="count" id="catalogCount"></span>
@@ -181,8 +182,13 @@
       <nav class="subtabs" id="adminTabs"></nav>
 
       <div id="adminPanelUsers" class="admin-panel" hidden>
-        <p class="catalog-hint">Выдать или снять права администратора. Личные списки пользователей (что и в каком статусе у них отмечено) приватны и не показываются даже администратору.</p>
+        <p class="catalog-hint">Выдать или снять права администратора. Кнопка «Просмотреть» открывает личный список, друзей и личные сообщения пользователя — обычно это видит только он сам, но администратору доступен полный просмотр (см. миграцию social-upgrade-8.sql).</p>
         <table class="users-table" id="usersTable"><tbody></tbody></table>
+      </div>
+
+      <div id="adminPanelReports" class="admin-panel" hidden>
+        <p class="catalog-hint">Жалобы пользователей друг на друга (кнопка «🚩 Пожаловаться» в карточке профиля). Клик по имени того, на кого жалуются, открывает его полный административный просмотр.</p>
+        <table class="users-table" id="reportsTable"><tbody></tbody></table>
       </div>
 
       <div id="adminPanelTitles" class="admin-panel" hidden>
@@ -223,6 +229,10 @@
     </dialog>
 
     <dialog id="userCardDialog">
+      <div class="dialog-inner"></div>
+    </dialog>
+
+    <dialog id="adminUserInspectDialog">
       <div class="dialog-inner"></div>
     </dialog>
 

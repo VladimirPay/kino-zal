@@ -1,18 +1,26 @@
-// Наш Кинозал — вкладка «Матч»: игра в духе Tinder. Карточки тайтлов из
-// общего каталога сайта (никаких новых обращений к Kinopoisk.dev — только
-// то, что кто-то уже когда-то искал и добавил в общую таблицу titles),
-// отмечаете «нравится»/«не то». Если тайтл, который вы отметили «нравится»,
-// уже точно так же отмечен одним из ваших друзей — это «совпадение», и вы
-// оба сразу об этом узнаёте (совпадение вычисляет и запоминает сама база
-// данных — функция check_swipe_match() из миграции social-upgrade-3.sql —
-// поэтому сайт не должен читать чужие свайпы напрямую, только сам факт
-// совпадения).
+// Наш Кинозал — вкладка «Мэтч»: игра в духе Tinder. Карточки тайтлов
+// набираются НЕ из всего каталога, а только из тех, с которыми уже
+// как-то взаимодействовали другие люди — оценили (ratings) или оставили
+// комментарий (comments). Это единственные таблицы, которые видно всем
+// авторизованным пользователям (в отличие от личных списков user_titles,
+// они не приватны), поэтому именно они и служат сигналом «карточку уже
+// смотрели/оценивали». Из этого набора убираются тайтлы, с которыми уже
+// взаимодействовал сам текущий пользователь — свайпнул, оценил,
+// прокомментировал или просто добавил в свой личный список в любом
+// статусе (хочу посмотреть / смотрю / просмотрено), даже если сам он его
+// не смотрел. Отмечаете «нравится»/«не то». Если тайтл, который вы
+// отметили «нравится», уже точно так же отмечен одним из ваших друзей —
+// это «совпадение», и вы оба сразу об этом узнаёте (совпадение вычисляет
+// и запоминает сама база данных — функция check_swipe_match() из миграции
+// social-upgrade-3.sql — поэтому сайт не должен читать чужие свайпы
+// напрямую, только сам факт совпадения).
 
 import { sb } from "./supabaseClient.js";
 import { state } from "./state.js";
 import { registerSectionLoader } from "./router.js";
 import { escapeHtml, fmtTime, posterHtml, showStatus } from "./utils.js";
 import { openTitleDetail } from "./titleDetail.js";
+import { openUserCard } from "./userCard.js";
 
 var deck = [];
 var deckPos = 0;
@@ -44,11 +52,19 @@ export async function loadMatchesList() {
     return '<div class="match-row" data-open-title="' + m.title_id + '">' +
       posterHtml(t.poster_url) +
       '<div><div><strong>' + escapeHtml(t.title || "…") + '</strong> <span class="mono" style="color:var(--muted);">' + (t.year || "") + '</span></div>' +
-      '<div class="mono" style="color:var(--muted);font-size:0.8rem;">🎉 совпадение с ' + escapeHtml(otherName) + ' · ' + fmtTime(m.created_at) + '</div></div>' +
+      '<div class="mono" style="color:var(--muted);font-size:0.8rem;">🎉 совпадение с ' +
+        '<button type="button" class="btn linklike" data-open-user="' + otherId + '">' + escapeHtml(otherName) + '</button>' +
+        ' · ' + fmtTime(m.created_at) + '</div></div>' +
     '</div>';
   }).join("");
   Array.prototype.forEach.call(el.querySelectorAll("[data-open-title]"), function (row) {
     row.addEventListener("click", function () { openTitleDetail(parseInt(row.getAttribute("data-open-title"), 10)); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll("[data-open-user]"), function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      openUserCard(btn.getAttribute("data-open-user"));
+    });
   });
 }
 
@@ -57,19 +73,52 @@ async function loadDeck() {
   wrap.innerHTML = '<p class="empty-note">Загрузка карточек…</p>';
   document.getElementById("swipeSkipBtn").parentElement.hidden = true;
 
-  const [swipedRes, titlesRes] = await Promise.all([
-    sb.from("swipes").select("title_id").eq("user_id", state.myProfile.id),
-    sb.from("titles").select("*").order("id", { ascending: false }).limit(100)
+  var myId = state.myProfile.id;
+  // ratings/comments читаются целиком (эти таблицы открыты на чтение всем
+  // авторизованным — в отличие от user_titles) — это и есть сигнал «карточку
+  // кто-то уже посмотрел и как-то с ней взаимодействовал». Остальные четыре
+  // запроса — про самого текущего пользователя, чтобы убрать из колоды то, с
+  // чем он уже взаимодействовал сам (даже если не смотрел).
+  const [ratingsRes, commentsRes, mySwipedRes, myListRes] = await Promise.all([
+    sb.from("ratings").select("title_id,user_id"),
+    sb.from("comments").select("title_id,user_id"),
+    sb.from("swipes").select("title_id").eq("user_id", myId),
+    sb.from("user_titles").select("title_id").eq("user_id", myId)
   ]);
+  if (ratingsRes.error || commentsRes.error) {
+    wrap.innerHTML = '<p class="empty-note">Не удалось загрузить карточки: ' + escapeHtml((ratingsRes.error || commentsRes.error).message) + '.</p>';
+    return;
+  }
+
+  var interacted = {}; // id тайтла -> кто-то (не важно кто) оценил или прокомментировал
+  var excluded = {}; // id тайтла -> сам пользователь уже как-то с ним взаимодействовал
+  (ratingsRes.data || []).forEach(function (r) {
+    interacted[r.title_id] = true;
+    if (r.user_id === myId) excluded[r.title_id] = true;
+  });
+  (commentsRes.data || []).forEach(function (c) {
+    interacted[c.title_id] = true;
+    if (c.user_id === myId) excluded[c.title_id] = true;
+  });
+  (mySwipedRes.data || []).forEach(function (s) { excluded[s.title_id] = true; });
+  (myListRes.data || []).forEach(function (u) { excluded[u.title_id] = true; });
+
+  var candidateIds = Object.keys(interacted).map(Number).filter(function (id) { return !excluded[id]; });
+  if (!candidateIds.length) {
+    deck = [];
+    deckPos = 0;
+    renderDeck();
+    return;
+  }
+
+  const titlesRes = await sb.from("titles").select("*").in("id", candidateIds);
   if (titlesRes.error) {
     wrap.innerHTML = '<p class="empty-note">Не удалось загрузить карточки: ' + escapeHtml(titlesRes.error.message) + '.</p>';
     return;
   }
-  var swipedIds = {};
-  (swipedRes.data || []).forEach(function (s) { swipedIds[s.title_id] = true; });
-  deck = (titlesRes.data || []).filter(function (t) { return !swipedIds[t.id]; });
+  deck = titlesRes.data || [];
   // Перемешиваем (Fisher-Yates) — иначе все всегда видели бы карточки в одном
-  // и том же порядке (по дате добавления в каталог).
+  // и том же порядке.
   for (var i = deck.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
     var tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
@@ -82,12 +131,12 @@ function renderDeck() {
   var wrap = document.getElementById("swipeDeck");
   var actions = document.getElementById("swipeSkipBtn").parentElement;
   if (!deck.length) {
-    wrap.innerHTML = '<p class="empty-note">В общем каталоге пока пусто — добавьте что-нибудь через «Каталог», и здесь появятся карточки.</p>';
+    wrap.innerHTML = '<p class="empty-note">Пока нет карточек — сюда попадают только тайтлы, которые кто-то из пользователей уже оценил или прокомментировал (и с которыми вы сами ещё не взаимодействовали). Оцените что-нибудь в «Каталоге» — и у других появятся карточки для мэтча.</p>';
     actions.hidden = true;
     return;
   }
   if (deckPos >= deck.length) {
-    wrap.innerHTML = '<p class="empty-note">Карточки закончились — загляните позже, когда в каталоге появится что-то новое (или сходите поищите в «Каталоге»).</p>';
+    wrap.innerHTML = '<p class="empty-note">Карточки закончились — загляните позже, когда кто-то оценит или прокомментирует что-то новое.</p>';
     actions.hidden = true;
     return;
   }

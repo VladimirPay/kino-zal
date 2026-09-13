@@ -16,6 +16,7 @@ import { ensureTrailerUrl } from "./catalog.js";
 
 export async function openTitleDetail(titleId, opts) {
   state.openTitleId = titleId;
+  openReplyForCommentId = null; // открываем карточку "с чистого листа" — не тащим форму ответа с предыдущей
   var dlg = document.getElementById("detailDialog");
   // «spin» — небольшая анимация появления, когда карточка открыта случайным
   // выбором («Не знаю, что посмотреть») — чуть более праздничный вид, чем
@@ -42,10 +43,40 @@ export function refreshOpenDetailIfAny() {
 
 document.getElementById("detailDialog").addEventListener("close", function () {
   state.openTitleId = null;
+  openReplyForCommentId = null;
 });
 
 var lastLocalWriteAt = {};
 function noteLocalWrite(titleId) { lastLocalWriteAt[titleId] = Date.now(); }
+
+// Ответы на комментарии: id комментария, у которого сейчас открыта форма
+// ответа (или null — ничего не открыто). Простое поле модуля, а не часть
+// state.js — это чисто локальное состояние одного диалога, как и
+// renderGeneration ниже.
+var openReplyForCommentId = null;
+
+// Раскладывает плоский (отсортированный по времени) список комментариев в
+// порядок "родитель, сразу за ним все его ответы (тоже по времени), потом
+// следующий родитель" — с глубиной вложенности для отступа. Не строит
+// вложенные <div>, а просто задаёт порядок и depth для плоского рендера —
+// так проще не сломать существующую CSS-стилизацию .comment (последний
+// элемент, разделители и т.п.), которая рассчитана на плоский список.
+function flattenCommentTree(comments) {
+  var byParent = {};
+  comments.forEach(function (c) {
+    var pid = c.parent_id || null;
+    (byParent[pid] = byParent[pid] || []).push(c);
+  });
+  var ordered = [];
+  function walk(pid, depth) {
+    (byParent[pid] || []).forEach(function (c) {
+      ordered.push({ c: c, depth: depth });
+      walk(c.id, depth + 1);
+    });
+  }
+  walk(null, 0);
+  return ordered;
+}
 
 // Растёт на каждый вызов renderTitleDetail — если пока шёл запрос к базе
 // запустился более новый перерендер того же тайтла (например, быстро друг
@@ -67,7 +98,7 @@ async function renderTitleDetail(titleId, opts) {
 
   const [tRes, utRes] = await Promise.all([
     sb.from("titles")
-      .select("*, ratings(user_id,value), comments(id,text,created_at,user_id,profiles!user_id(display_name),comment_likes(user_id))")
+      .select("*, ratings(user_id,value), comments(id,text,created_at,user_id,parent_id,profiles!user_id(display_name),comment_likes(user_id))")
       .eq("id", titleId).limit(1),
     sb.from("user_titles").select("*").eq("title_id", titleId).eq("user_id", state.myProfile.id).limit(1)
   ]);
@@ -96,16 +127,33 @@ async function renderTitleDetail(titleId, opts) {
   }).join("");
 
   var sortedComments = (t.comments || []).slice().sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
+  var commentsById = {};
+  sortedComments.forEach(function (c) { commentsById[c.id] = c; });
   var commentsHtml = sortedComments.length
-    ? sortedComments.map(function (c) {
+    ? flattenCommentTree(sortedComments).map(function (node) {
+        var c = node.c, depth = node.depth;
         var who = (c.profiles && c.profiles.display_name) || "неизвестно";
         var canDel = state.myProfile && (c.user_id === state.myProfile.id || state.myProfile.role === "admin");
         var likeCount = (c.comment_likes || []).length;
         var liked = (c.comment_likes || []).some(function (l) { return l.user_id === state.myProfile.id; });
-        return '<div class="comment"><div class="who"><button type="button" class="btn linklike small" data-open-user="' + c.user_id + '" style="padding:0;">' + escapeHtml(who) + '</button>' +
+        var indent = Math.min(depth, 4) * 18;
+        var parent = c.parent_id ? commentsById[c.parent_id] : null;
+        var parentWho = parent ? ((parent.profiles && parent.profiles.display_name) || "…") : null;
+        var replyOpen = openReplyForCommentId === c.id;
+        return '<div class="comment" style="margin-left:' + indent + 'px;">' +
+          (parentWho ? '<div class="mono" style="color:var(--muted);font-size:0.72rem;">↳ в ответ ' + escapeHtml(parentWho) + '</div>' : '') +
+          '<div class="who"><button type="button" class="btn linklike small" data-open-user="' + c.user_id + '" style="padding:0;">' + escapeHtml(who) + '</button>' +
           '<button class="like-btn ' + (liked ? "liked" : "") + '" data-like-comment="' + c.id + '" type="button">♥ ' + likeCount + '</button>' +
+          '<button type="button" class="btn linklike small" data-reply-comment="' + c.id + '">' + (replyOpen ? "отмена" : "ответить") + '</button>' +
           (canDel ? ' <button class="btn linklike small" data-del-comment="' + c.id + '" type="button">удалить</button>' : '') +
-          '</div><div>' + escapeHtml(c.text) + '</div></div>';
+          '</div><div>' + escapeHtml(c.text) + '</div>' +
+          (replyOpen
+            ? '<form data-reply-form="' + c.id + '" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">' +
+                '<input class="reply-input" placeholder="Ответ ' + escapeHtml(who) + '…" autocomplete="off" style="flex:1;min-width:140px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);font:inherit;font-size:0.85rem;">' +
+                '<button class="btn primary small" type="submit">Отправить</button>' +
+              '</form>'
+            : '') +
+        '</div>';
       }).join("")
     : '<p class="empty-note">Комментариев пока нет.</p>';
 
@@ -232,6 +280,27 @@ async function renderTitleDetail(titleId, opts) {
     if (error) { showStatus("Не удалось отправить комментарий: " + error.message, true); return; }
     noteLocalWrite(titleId);
     renderTitleDetail(titleId, { showLoading: false });
+  });
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-reply-comment]"), function (btn) {
+    btn.addEventListener("click", function () {
+      var cid = btn.getAttribute("data-reply-comment");
+      openReplyForCommentId = (openReplyForCommentId === cid) ? null : cid;
+      renderTitleDetail(titleId, { showLoading: false });
+    });
+  });
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-reply-form]"), function (form) {
+    form.addEventListener("submit", async function (ev) {
+      ev.preventDefault();
+      var input = form.querySelector(".reply-input");
+      var text = (input.value || "").trim();
+      if (!text) return;
+      var parentId = form.getAttribute("data-reply-form");
+      const { error } = await sb.from("comments").insert({ title_id: t.id, user_id: state.myProfile.id, text: text, parent_id: parentId });
+      if (error) { showStatus("Не удалось отправить ответ: " + error.message, true); return; }
+      openReplyForCommentId = null;
+      noteLocalWrite(titleId);
+      renderTitleDetail(titleId, { showLoading: false });
+    });
   });
   Array.prototype.forEach.call(inner.querySelectorAll("[data-del-comment]"), function (btn) {
     btn.addEventListener("click", async function () {

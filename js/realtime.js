@@ -9,6 +9,7 @@ import { renderChat } from "./chat.js";
 import { loadDmConversations, renderDmThread } from "./messages.js";
 import { loadFriends, loadFriendsFeed } from "./friends.js";
 import { loadMatchesList } from "./matchgame.js";
+import { refreshReportsIfVisible } from "./admin.js";
 import { showStatus } from "./utils.js";
 
 // Правки titles/ratings/comments/comment_likes часто прилетают пачками за
@@ -75,8 +76,16 @@ export function subscribeRealtime() {
       if (m.user_a !== state.myProfile.id && m.user_b !== state.myProfile.id) return;
       var otherId = m.user_a === state.myProfile.id ? m.user_b : m.user_a;
       var otherName = (state.profilesById[otherId] || {}).display_name || "друг";
-      showStatus("🎉 У вас совпадение с " + otherName + " во вкладке «Матч»!");
+      showStatus("🎉 У вас совпадение с " + otherName + " во вкладке «Мэтч»!");
       if (state.activeSection === "match") loadMatchesList();
+    })
+    // Жалобы (user_reports, social-upgrade-8.sql) видны только администратору
+    // (RLS) — эхо этого события прилетит только клиентам-администраторам,
+    // остальным Realtime его просто не покажет.
+    .on("postgres_changes", {event: "INSERT", schema: "public", table: "user_reports"}, function () {
+      if (state.myProfile.role !== "admin") return;
+      showStatus("🚩 Новая жалоба на пользователя — «Управление → Жалобы»");
+      refreshReportsIfVisible();
     })
     .subscribe();
 }
