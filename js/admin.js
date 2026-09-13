@@ -4,9 +4,9 @@
 //  · Фильмы — весь каталог тайтлов, с возможностью удалить (вместе со всеми
 //    личными статусами/оценками/комментариями к нему у всех пользователей —
 //    это разрешено RLS-политикой "titles: delete admin only");
-//  · Лимиты API — сколько запросов к Kinopoisk.dev было сделано (бесплатный
-//    тариф ограничен ~200 запросами в сутки на весь сайт) — из таблицы
-//    kp_api_log, которую пишет catalog.js при каждом обращении;
+//  · Лимиты API — сколько запросов к ApiGet.ru было сделано и примерно
+//    сколько это стоило (0.01₽ за успешный запрос, без дневного лимита) —
+//    из таблицы kp_api_log, которую пишет catalog.js при каждом обращении;
 //  · Журнал действий — activity_log: кто/что/когда менял, пишется
 //    триггерами на уровне базы данных (см. auth-upgrade.sql), не зависит от
 //    кода сайта — при желании данные можно прочитать/перенести и без него.
@@ -132,12 +132,15 @@ async function loadApiLimitsPanel() {
   var rows = data || [];
   var startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
   var today = rows.filter(function (r) { return new Date(r.created_at) >= startOfDay; });
-  var failToday = today.filter(function (r) { return !r.ok; }).length;
+  var okToday = today.filter(function (r) { return r.ok; }).length;
+  var failToday = today.length - okToday;
+  var costToday = (okToday * 0.01).toFixed(2).replace(".", ",");
 
   summaryEl.innerHTML =
-    '<p class="catalog-hint">Бесплатный тариф Kinopoisk.dev — около 200 запросов в сутки на весь сайт. Счётчик ниже приблизительный (считается с полуночи по времени вашего браузера, у Kinopoisk.dev сутки могут начинаться в другой момент).</p>' +
+    '<p class="catalog-hint">ApiGet.ru берёт с предоплаченного баланса 0.01₽ за каждый УСПЕШНЫЙ запрос, дневного лимита нет — точный остаток средств смотрите в личном кабинете apiget.ru. Счётчик ниже — приблизительный расход по данным самого сайта (считается с полуночи по времени вашего браузера).</p>' +
     '<p style="font-size:1.05rem;margin:4px 0 14px;"><strong class="mono">' + today.length + '</strong> запросов сегодня' +
-    (failToday ? ' <span class="mono" style="color:var(--accent-2);">(' + failToday + ' с ошибкой)</span>' : '') + '</p>';
+    (okToday ? ' <span class="mono" style="color:var(--muted);">(≈' + costToday + '₽)</span>' : '') +
+    (failToday ? ' <span class="mono" style="color:var(--accent-2);">(' + failToday + ' с ошибкой, бесплатно)</span>' : '') + '</p>';
 
   if (!rows.length) { tbody.innerHTML = '<tr><td>Запросов пока не было.</td></tr>'; return; }
   tbody.innerHTML = '<tr><th>Когда</th><th>Кто</th><th>Запрос</th><th>Результат</th></tr>' + rows.slice(0, 150).map(function (r) {

@@ -14,7 +14,7 @@ import { openTitleDetail, refreshOpenDetailIfAny } from "./titleDetail.js";
 export async function loadMyList() {
   const { data, error } = await sb
     .from("user_titles")
-    .select("*, titles!title_id(*, ratings(user_id,value), comments(id,text,created_at,user_id,profiles!user_id(display_name),comment_likes(user_id)))")
+    .select("*, titles!title_id(*, ratings(user_id,value,created_at), comments(id,text,created_at,user_id,profiles!user_id(display_name),comment_likes(user_id)))")
     .eq("user_id", state.myProfile.id)
     .order("created_at", { ascending: false });
   if (error) { showStatus("Не удалось загрузить список: " + error.message, true); return; }
@@ -78,6 +78,19 @@ function renderGrid() {
 document.getElementById("searchInput").addEventListener("input", function (ev) {
   state.searchQuery = ev.target.value;
   renderGrid();
+});
+
+// «Не знаю, что посмотреть» — случайный выбор из тех, что отмечены «Хочу
+// посмотреть» (смотреть то, что уже просмотрено, смысла нет). Ничего не
+// стоит по лимиту запросов — вся выборка уже лежит в state.myTitles.
+document.getElementById("randomPickBtn").addEventListener("click", function () {
+  var pool = state.myTitles.filter(function (ut) { return ut.status === "want"; });
+  if (!pool.length) {
+    showStatus("Сначала отметьте что-нибудь «Хочу посмотреть» — иначе не из чего выбирать.", true);
+    return;
+  }
+  var pick = pool[Math.floor(Math.random() * pool.length)];
+  openTitleDetail(pick.titles.id, { spin: true });
 });
 
 registerSectionLoader("mylist", loadMyList);

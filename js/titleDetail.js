@@ -13,9 +13,14 @@ import { bindClose, escapeHtml, pluralRu, posterHtml, ratingAvg, showStatus, sta
 import { loadMyList } from "./mylist.js";
 import { openUserCard } from "./userCard.js";
 
-export async function openTitleDetail(titleId) {
+export async function openTitleDetail(titleId, opts) {
   state.openTitleId = titleId;
-  document.getElementById("detailDialog").showModal();
+  var dlg = document.getElementById("detailDialog");
+  // «spin» — небольшая анимация появления, когда карточка открыта случайным
+  // выбором («Не знаю, что посмотреть») — чуть более праздничный вид, чем
+  // обычное открытие диалога по клику.
+  dlg.classList.toggle("roulette", !!(opts && opts.spin));
+  dlg.showModal();
   await renderTitleDetail(titleId);
 }
 

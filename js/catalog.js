@@ -1,33 +1,46 @@
-// Наш Кинозал — вкладка «Каталог» (Kinopoisk.dev, через прокси-функцию
-// Supabase) и блок рекомендаций на вкладке «Мой список».
+// Наш Кинозал — вкладка «Каталог» (данные Кинопоиска через сервис ApiGet.ru,
+// подключённый через прокси-функцию Supabase) и блок рекомендаций на
+// вкладке «Мой список».
 //
-// Прямые запросы из браузера к api.kinopoisk.dev блокируются политикой CORS,
-// поэтому сайт обращается к собственной Edge Function "kinopoisk-proxy" в
-// Supabase, а она уже сама (сервер-сервер, без CORS) ходит в Kinopoisk.dev
-// с секретным ключом. См. файл kinopoisk-proxy.ts и инструкцию по установке.
+// Прямые запросы из браузера к apiget.ru блокируются политикой CORS, поэтому
+// сайт обращается к собственной Edge Function "kinopoisk-proxy" в Supabase,
+// а она уже сама (сервер-сервер, без CORS) ходит в ApiGet.ru с секретным
+// ключом. См. файл kinopoisk-proxy.ts и инструкцию по установке. Раньше
+// здесь стоял Kinopoisk.dev — перешли на ApiGet.ru, чтобы не упираться в
+// дневной лимит запросов (см. ниже).
 //
-// Принцип рекомендаций: берём тайтлы из «Моего списка», которые пользователь
-// оценил на 4-5 звёзд или отметил «Просмотрено», собираем их жанры и берём
-// два самых частых — и просим у Kinopoisk.dev высокорейтинговые (6.5+) тайтлы
-// этих жанров, которых ещё нет в личном списке. Если понравившихся жанров
-// нет (список пуст или ничего не оценено высоко) — блок просто не показываем.
+// Принцип рекомендаций (два источника, показываются вместе, дубликаты
+// убираются):
+//  1) «Социальный» сигнал (см. loadSocialRecs) — тайтлы, которые уже есть в
+//     общей таблице titles и которые ваши друзья оценили на 4-5★ или
+//     отметили «Просмотрено», а у вас их ещё нет. Ноль обращений к
+//     ApiGet.ru — только свои данные в Supabase, поэтому этот источник
+//     показывается даже если ApiGet.ru недоступен;
+//  2) Жанровая эвристика — берём тайтлы из «Моего списка», которые сам
+//     пользователь оценил на 4-5★ или отметил «Просмотрено», собираем их
+//     жанры, берём самый частый — и просим у ApiGet.ru случайную подборку
+//     этого жанра, из которой оставляем самые высокорейтинговые тайтлы,
+//     которых ещё нет в личном списке.
+// Если оба источника пусты — блок просто не показываем.
 //
-// ЭКОНОМИЯ ЛИМИТА ЗАПРОСОВ (бесплатный тариф Kinopoisk.dev — около 200
-// запросов в сутки на весь сайт). Раньше он расходовался намного быстрее,
-// чем кажется на глаз, по трём причинам — и все три здесь устранены:
-//  1) поиск в каталоге раньше слался на каждое нажатие клавиши (с задержкой
-//     350мс) — теперь только по кнопке «Искать»/Enter, плюс одинаковые
-//     повторные запросы в рамках сессии берутся из памяти (catalogSearchCache);
-//  2) блок рекомендаций пересчитывался заново при КАЖДОЙ загрузке «Моего
-//     списка» — а loadMyList() вызывается очень часто: после любого действия
-//     (оценка, статус, комментарий) и через Realtime при действиях ДРУГИХ
-//     пользователей. Теперь рекомендации кэшируются в sessionStorage на 12
-//     часов и пересчитываются заново только если реально изменился набор
-//     любимых жанров;
-//  3) ответы Kinopoisk.dev дополнительно кладутся в общую таблицу kp_cache —
-//     если кто-то из друзей уже искал то же самое (или у вас совпали жанры
-//     рекомендаций) в последние несколько часов, запрос вообще не уходит во
-//     внешний API, а берётся из своей базы.
+// ЭКОНОМИЯ ЗАПРОСОВ. У ApiGet.ru нет дневного лимита, но каждый успешный
+// запрос стоит небольшую, но не нулевую сумму (0.01₽) — поэтому все три
+// экономии, добавленные ещё во времена Kinopoisk.dev, здесь так же важны,
+// просто цель сменилась с «не упереться в лимит» на «не тратить лишнее»:
+//  1) поиск в каталоге запускается только по кнопке «Искать»/Enter (не на
+//     каждое нажатие клавиши), плюс одинаковые повторные запросы в рамках
+//     сессии берутся из памяти (catalogSearchCache);
+//  2) блок рекомендаций пересчитывался бы заново при КАЖДОЙ загрузке «Моего
+//     списка» — а loadMyList() вызывается очень часто: после любого своего
+//     действия и через Realtime при действиях ДРУГИХ пользователей. Вместо
+//     этого рекомендации кэшируются в sessionStorage на 12 часов и
+//     пересчитываются заново только если реально изменился набор любимых
+//     жанров;
+//  3) успешные ответы ApiGet.ru дополнительно кладутся в общую таблицу
+//     kp_cache — если кто-то из друзей уже искал то же самое (или у вас
+//     совпали жанры рекомендаций) в последние несколько часов, запрос вообще
+//     не уходит во внешний API, а берётся из своей базы (и не тратит деньги
+//     повторно).
 // Таблица kp_cache создаётся миграцией social-upgrade-2.sql; пока она не
 // выполнена, весь код ниже просто работает как раньше (try/catch).
 
@@ -38,23 +51,25 @@ import { escapeHtml, pluralRu, posterHtml, showStatus } from "./utils.js";
 import { loadMyList } from "./mylist.js";
 import { openTitleDetail } from "./titleDetail.js";
 
-// Сколько времени считать кэшированный ответ Kinopoisk.dev ещё свежим —
-// разное для поиска (люди ищут разное и часто) и для рекомендаций (список
-// топ-жанров и так пересчитывается редко).
-var KP_CACHE_TTL_MS = { "/movie/search": 6 * 60 * 60 * 1000, "/movie": 24 * 60 * 60 * 1000 };
+// Сколько времени считать кэшированный ответ ApiGet.ru ещё свежим — разное
+// для поиска (люди ищут разное и часто), для жанровой подборки (список
+// топ-жанров и так пересчитывается редко) и для карточки одного тайтла
+// (метаданные фильма практически не меняются).
+var KP_CACHE_TTL_MS = { "search": 6 * 60 * 60 * 1000, "get-random": 24 * 60 * 60 * 1000, "get-info": 7 * 24 * 60 * 60 * 1000 };
 
-function kpCacheKey(path, params) {
+function kpCacheKey(method, params) {
   var sorted = {};
   Object.keys(params || {}).sort().forEach(function (k) { sorted[k] = params[k]; });
-  return path + "?" + JSON.stringify(sorted);
+  return method + "?" + JSON.stringify(sorted);
 }
 
-async function kpFetch(path, params) {
-  var cacheKey = kpCacheKey(path, params);
-  var ttl = KP_CACHE_TTL_MS[path] || 6 * 60 * 60 * 1000;
+async function kpFetch(method, params) {
+  var cacheKey = kpCacheKey(method, params);
+  var ttl = KP_CACHE_TTL_MS[method] || 6 * 60 * 60 * 1000;
 
   // Сначала смотрим в общий кэш в базе — если кто-то (не обязательно вы)
-  // уже делал такой же запрос недавно, Kinopoisk.dev вообще не трогаем.
+  // уже делал такой же запрос недавно, ApiGet.ru вообще не трогаем (и не
+  // тратим деньги повторно).
   try {
     var cacheRes = await sb.from("kp_cache").select("response,created_at").eq("cache_key", cacheKey).limit(1);
     if (!cacheRes.error && cacheRes.data && cacheRes.data.length) {
@@ -63,67 +78,69 @@ async function kpFetch(path, params) {
     }
   } catch (e) { /* таблицы kp_cache ещё нет (миграция не выполнена) — просто идём дальше как раньше */ }
 
-  var res = await sb.functions.invoke("kinopoisk-proxy", { body: { path: path, params: params || {} } });
+  var res = await sb.functions.invoke("kinopoisk-proxy", { body: { method: method, params: params || {} } });
   if (res.error) {
-    logKpUsage(path, false, null);
-    throw new Error("Kinopoisk.dev: не удалось обратиться к серверу (" + (res.error.message || res.error) + ")");
+    await logKpUsage(method, false, null);
+    throw new Error("ApiGet.ru: не удалось обратиться к серверу (" + (res.error.message || res.error) + ")");
   }
   var data = res.data;
-  logKpUsage(path, !!(data && data.ok), data ? data.status : null);
+  await logKpUsage(method, !!(data && data.ok), data ? data.status : null);
   if (!data || !data.ok) {
-    var status = data ? data.status : "?";
-    var extra = (status === 403 || status === 429) ? " (похоже, кончился дневной лимит запросов)" : "";
     var detail = (data && data.message) ? " — " + data.message : "";
-    throw new Error("Kinopoisk.dev: код " + status + extra + detail);
+    throw new Error("ApiGet.ru: ошибка" + (data && data.status != null ? " (код " + data.status + ")" : "") + detail);
   }
-  // Сохраняем успешный ответ в общий кэш на будущее (для себя и для других).
+  // Сохраняем успешный ответ в общий кэш на будущее (для себя и для других —
+  // это не только быстрее, но и буквально экономит деньги на счету).
   sb.from("kp_cache").upsert({ cache_key: cacheKey, response: data.body, created_at: new Date().toISOString() }, { onConflict: "cache_key" })
     .then(function (r) { if (r.error) console.warn("kp_cache:", r.error.message); });
   return data.body;
 }
 
-// Пишем счётчик обращений к Kinopoisk.dev для админского раздела «Лимиты
-// API» — по одной строке на запрос. Если таблица kp_api_log ещё не создана
-// (миграция social-upgrade-2.sql не выполнена) — просто молча пропускаем,
-// это не должно мешать самому поиску.
-function logKpUsage(path, ok, status) {
-  sb.from("kp_api_log").insert({user_id: state.myProfile.id, path: path, ok: ok, status: status})
-    .then(function (res) { if (res.error) console.warn("kp_api_log:", res.error.message); });
+// Пишем счётчик обращений к ApiGet.ru для админского раздела «Лимиты API»
+// (там же выводится примерная сумма — 0.01₽ за успешный запрос) — по одной
+// строке на запрос. ВАЖНО: дожидаемся завершения записи (await), а не
+// "запустил и забыл" — иначе если сразу после запроса закрыть вкладку или
+// перезагрузить страницу, запись может не успеть сохраниться, и счётчик в
+// «Управление» покажет МЕНЬШЕ реальных запросов, чем было на самом деле.
+// Если таблица kp_api_log ещё не создана (миграция social-upgrade-2.sql не
+// выполнена) — просто молча пропускаем, это не должно мешать самому поиску.
+async function logKpUsage(method, ok, status) {
+  try {
+    var res = await sb.from("kp_api_log").insert({user_id: state.myProfile.id, path: method, ok: ok, status: status});
+    if (res.error) console.warn("kp_api_log:", res.error.message);
+  } catch (e) { console.warn("kp_api_log:", e.message); }
 }
 
-// Kinopoisk.dev отдаёт жанры сразу названиями (не числовыми id, как TMDB),
-// поэтому отдельная загрузка «карты жанров» не нужна — этим и объясняется,
-// почему тут нет функции наподобие ensureGenreMaps.
-function normalizeKpItem(raw) {
-  var posterUrl = null;
-  if (raw.poster) {
-    posterUrl = (typeof raw.poster === "string") ? raw.poster : (raw.poster.previewUrl || raw.poster.url || null);
-  }
-  var genreNames = [];
-  if (Array.isArray(raw.genres)) {
-    genreNames = raw.genres.map(function (g) { return typeof g === "string" ? g : (g && g.name); }).filter(Boolean);
-  }
-  var voteAverage = null;
-  if (typeof raw.rating === "number") voteAverage = raw.rating;
-  else if (raw.rating && typeof raw.rating.kp === "number") voteAverage = raw.rating.kp;
+// ApiGet.ru отдаёт жанры сразу названиями по-русски (не числовыми id), но
+// ТОЛЬКО в ответе метода get-info (подробная карточка одного тайтла) — в
+// облегчённых списках (search/get-random/list) поля жанра нет вовсе. Поэтому
+// у только что найденных, но ещё не добавленных тайтлов жанр может быть
+// пустым — он подтягивается отдельным запросом get-info в момент реального
+// добавления в список (см. ensureTitleFromKp), и с этого момента живёт в
+// таблице titles уже навсегда, не требуя повторных запросов.
+function normalizeApiGetItem(raw) {
+  var posterUrl = raw.poster_big || raw.poster_small || null;
+  var genreNames = Array.isArray(raw.genre) ? raw.genre.filter(Boolean) : [];
+  var voteAverage = (raw.rating && raw.rating.kinopoisk && typeof raw.rating.kinopoisk.value === "number")
+    ? raw.rating.kinopoisk.value : null;
   if (voteAverage) voteAverage = Math.round(voteAverage * 10) / 10;
-  var mediaType = KP_TYPES.indexOf(raw.type) !== -1 ? raw.type : "movie";
+  var mediaType = raw.type === "series" ? "tv-series" : (KP_TYPES.indexOf(raw.type) !== -1 ? raw.type : "movie");
   return {
-    kpId: raw.id,
+    kpId: raw.kinopoisk_id,
     mediaType: mediaType,
-    title: raw.name || raw.alternativeName || raw.enName || "Без названия",
+    title: raw.title_ru || raw.title_en || "Без названия",
     year: raw.year || null,
     genreNames: genreNames,
     genre: genreNames.slice(0, 3).join(", ") || null,
-    overview: raw.description || raw.shortDescription || null,
+    overview: raw.description || raw.tagline || null,
     posterUrl: posterUrl,
     voteAverage: voteAverage || null
   };
 }
 
 // Поиск запускается кнопкой «Искать»/Enter, а не на каждое нажатие клавиши —
-// это самая большая экономия дневного лимита запросов. Очистка поля сразу
-// очищает результаты (без обращения к Kinopoisk.dev).
+// это самая большая экономия запросов (и денег). Очистка поля сразу очищает
+// результаты (без обращения к ApiGet.ru).
 document.getElementById("catalogSearchForm").addEventListener("submit", function (ev) {
   ev.preventDefault();
   var q = document.getElementById("catalogSearch").value.trim();
@@ -148,12 +165,12 @@ async function searchKp(query) {
     return;
   }
   try {
-    var res = await kpFetch("/movie/search", {query: query, limit: 20});
-    state.catalogResults = (res.docs || []).map(normalizeKpItem);
+    var res = await kpFetch("search", {query: query, limit: 20});
+    state.catalogResults = (res.results || []).map(normalizeApiGetItem);
     catalogSearchCache[cacheKey] = state.catalogResults;
   } catch (e) {
     state.catalogResults = [];
-    showStatus("Не удалось обратиться к Kinopoisk.dev: " + e.message, true);
+    showStatus("Не удалось обратиться к ApiGet.ru: " + e.message, true);
   }
   renderCatalogGrid();
 }
@@ -214,14 +231,41 @@ function renderCatalogGrid() {
   });
 }
 
+// Если тайтл впервые добавляется в общий каталог сайта (ещё не было ни у
+// кого), а исходная карточка item пришла из облегчённого списка (поиск,
+// подборка по жанру) — жанра в ней ещё нет (см. комментарий у
+// normalizeApiGetItem). Тогда один раз досылаем get-info за полной
+// карточкой, чтобы жанр сохранился в общей таблице titles навсегда и не
+// пришлось запрашивать его снова — ни вам, ни другим участникам сайта,
+// которые впоследствии откроют этот же тайтл.
+async function enrichWithGenreIfMissing(item) {
+  if (item.genreNames && item.genreNames.length) return item;
+  try {
+    var full = await kpFetch("get-info", { kinopoisk_id: item.kpId });
+    var enriched = normalizeApiGetItem(full);
+    return Object.assign({}, item, {
+      genreNames: enriched.genreNames.length ? enriched.genreNames : item.genreNames,
+      genre: enriched.genre || item.genre,
+      overview: item.overview || enriched.overview,
+      posterUrl: item.posterUrl || enriched.posterUrl
+    });
+  } catch (e) {
+    // Не удалось получить полную карточку (например, обращение к ApiGet.ru
+    // прямо сейчас не удалось) — не страшно, добавляем без жанра, он просто
+    // не будет учитываться в рекомендациях по жанрам для этого тайтла.
+    return item;
+  }
+}
+
 async function ensureTitleFromKp(item) {
   const existing = await sb.from("titles").select("*").eq("kp_id", item.kpId).eq("media_type", item.mediaType).limit(1);
   if (existing.error) throw existing.error;
   if (existing.data && existing.data.length) return existing.data[0];
+  var full = await enrichWithGenreIfMissing(item);
   const payload = {
-    kp_id: item.kpId, media_type: item.mediaType, title: item.title, year: item.year,
-    genre: item.genre, genre_names: item.genreNames || [], overview: item.overview,
-    poster_url: item.posterUrl, kp_rating: item.voteAverage, added_by: state.myProfile.id
+    kp_id: full.kpId, media_type: full.mediaType, title: full.title, year: full.year,
+    genre: full.genre, genre_names: full.genreNames || [], overview: full.overview,
+    poster_url: full.posterUrl, kp_rating: full.voteAverage, added_by: state.myProfile.id
   };
   const ins = await sb.from("titles").insert(payload).select().limit(1);
   if (ins.error) {
@@ -258,21 +302,58 @@ function writeRecsCache(obj) {
   try { sessionStorage.setItem("kz_recs_cache", JSON.stringify(obj)); } catch (e) {}
 }
 
+// «Социальный» сигнал — тайтлы, которые уже есть в общей таблице titles
+// (то есть кто-то из вас их уже искал и добавлял — ни одного нового запроса
+// к Kinopoisk.dev), которые ваши друзья оценили на 4-5★ или отметили
+// «Просмотрено», а у вас в списке их ещё нет. Это самая надёжная и самая
+// дешёвая (ноль запросов к внешнему API) рекомендация — свой круг людей со
+// схожими вкусами обычно советует точнее, чем жанровая эвристика ниже.
+async function loadSocialRecs(haveIds, dismissed) {
+  try {
+    var frRes = await sb.from("friend_requests").select("from_user,to_user").eq("status", "accepted")
+      .or("from_user.eq." + state.myProfile.id + ",to_user.eq." + state.myProfile.id);
+    if (frRes.error) return [];
+    var friendIds = (frRes.data || []).map(function (r) { return r.from_user === state.myProfile.id ? r.to_user : r.from_user; });
+    if (!friendIds.length) return [];
+
+    var [ratingsRes, utRes] = await Promise.all([
+      sb.from("ratings").select("title_id,user_id,value").in("user_id", friendIds).gte("value", 4),
+      sb.from("user_titles").select("title_id,user_id").in("user_id", friendIds).eq("status", "watched")
+    ]);
+    if (ratingsRes.error || utRes.error) return [];
+
+    var likedBy = {}; // title_id -> {userId: true}
+    (ratingsRes.data || []).forEach(function (r) { (likedBy[r.title_id] = likedBy[r.title_id] || {})[r.user_id] = true; });
+    (utRes.data || []).forEach(function (r) { (likedBy[r.title_id] = likedBy[r.title_id] || {})[r.user_id] = true; });
+    var titleIds = Object.keys(likedBy);
+    if (!titleIds.length) return [];
+
+    var tRes = await sb.from("titles").select("*").in("id", titleIds);
+    if (tRes.error) return [];
+    return (tRes.data || [])
+      .filter(function (t) { return t.kp_id; })
+      .map(function (t) {
+        var friendIdsForTitle = Object.keys(likedBy[t.id] || {});
+        var friendNames = friendIdsForTitle.map(function (uid) { return (state.profilesById[uid] || {}).display_name; }).filter(Boolean);
+        var item = normalizeKpItemFromTitleRow(t);
+        item.social = { count: friendIdsForTitle.length, names: friendNames };
+        return item;
+      })
+      .filter(function (it) { return !haveIds[it.mediaType + ":" + it.kpId] && !dismissed[it.mediaType + ":" + it.kpId]; })
+      .sort(function (a, b) { return b.social.count - a.social.count; });
+  } catch (e) { return []; }
+}
+
+function normalizeKpItemFromTitleRow(t) {
+  return {
+    kpId: t.kp_id, mediaType: t.media_type, title: t.title, year: t.year,
+    genreNames: t.genre_names || [], genre: t.genre, overview: t.overview,
+    posterUrl: t.poster_url, voteAverage: t.kp_rating
+  };
+}
+
 export async function loadRecommendations() {
   var row = document.getElementById("recsRow");
-  var likedGenres = {};
-  state.myTitles.forEach(function (ut) {
-    var t = ut.titles;
-    var mine = (t.ratings || []).find(function (r) { return r.user_id === state.myProfile.id; });
-    var liked = (mine && mine.value >= 4) || ut.status === 'watched';
-    if (liked && t.genre_names) {
-      t.genre_names.forEach(function (g) { likedGenres[g] = (likedGenres[g] || 0) + 1; });
-    }
-  });
-  var topGenres = Object.keys(likedGenres).sort(function (a, b) { return likedGenres[b] - likedGenres[a]; }).slice(0, 2);
-  if (!topGenres.length) { row.hidden = true; return; }
-  var signature = topGenres.slice().sort().join(",");
-
   var haveIds = {};
   state.myTitles.forEach(function (ut) { if (ut.titles.kp_id) haveIds[ut.titles.media_type + ":" + ut.titles.kp_id] = true; });
 
@@ -286,38 +367,77 @@ export async function loadRecommendations() {
   } catch (e) {}
 
   function finalize(rawItems) {
-    return rawItems
-      .filter(function (it) { return !haveIds[it.mediaType + ":" + it.kpId] && !dismissed[it.mediaType + ":" + it.kpId]; })
-      .slice(0, 10);
+    return rawItems.filter(function (it) { return !haveIds[it.mediaType + ":" + it.kpId] && !dismissed[it.mediaType + ":" + it.kpId]; });
   }
+
+  function mergeAndRender(socialItems, genreItems) {
+    var seen = {}, merged = [];
+    socialItems.forEach(function (it) { var k = it.mediaType + ":" + it.kpId; if (!seen[k]) { seen[k] = true; merged.push(it); } });
+    genreItems.forEach(function (it) { var k = it.mediaType + ":" + it.kpId; if (!seen[k]) { seen[k] = true; merged.push(it); } });
+    merged = merged.slice(0, 10);
+    if (!merged.length) { row.hidden = true; return; }
+    row.hidden = false;
+    renderRecsStrip(merged);
+  }
+
+  var socialItems = await loadSocialRecs(haveIds, dismissed);
+
+  var likedGenres = {};
+  state.myTitles.forEach(function (ut) {
+    var t = ut.titles;
+    var mine = (t.ratings || []).find(function (r) { return r.user_id === state.myProfile.id; });
+    var liked = (mine && mine.value >= 4) || ut.status === 'watched';
+    if (liked && t.genre_names) {
+      t.genre_names.forEach(function (g) { likedGenres[g] = (likedGenres[g] || 0) + 1; });
+    }
+  });
+  // ApiGet.ru принимает только один жанр за раз в get-random — берём самый
+  // частый среди понравившихся, второй по частоте в этом запросе не участвует
+  // (он всё равно почти всегда перекрывается социальными рекомендациями).
+  var topGenres = Object.keys(likedGenres).sort(function (a, b) { return likedGenres[b] - likedGenres[a]; }).slice(0, 2);
+
+  if (!topGenres.length) {
+    // Нет данных для жанровой эвристики (список пуст или ничего не оценено
+    // высоко) — но социальные рекомендации от друзей от этого не зависят.
+    mergeAndRender(socialItems, []);
+    return;
+  }
+  var signature = topGenres.slice().sort().join(",");
 
   var cache = readRecsCache();
   if (cache && cache.signature === signature && (Date.now() - cache.fetchedAt) < RECS_CACHE_TTL_MS) {
-    var cachedItems = finalize(cache.items);
-    if (!cachedItems.length) { row.hidden = true; return; }
-    row.hidden = false;
-    renderRecsStrip(cachedItems);
+    mergeAndRender(socialItems, finalize(cache.items));
     return;
   }
 
   try {
-    var res = await kpFetch("/movie", {
-      "genres.name": topGenres, "rating.kp": "6.5-10", "poster.url": "!null",
-      sortField: "rating.kp", sortType: -1, limit: 20
-    });
-    var rawItems = (res.docs || []).map(normalizeKpItem);
+    // get-random отдаёт случайную выборку (не отсортированную по рейтингу),
+    // поэтому просим с запасом и сортируем сами, оставляя самые
+    // высокорейтинговые — как раньше делал Kinopoisk.dev через sortField.
+    var res = await kpFetch("get-random", { genre: topGenres[0], count: 20 });
+    var rawItems = (res.results || [])
+      .map(normalizeApiGetItem)
+      .sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
     writeRecsCache({ signature: signature, fetchedAt: Date.now(), items: rawItems });
-    var items = finalize(rawItems);
-    if (!items.length) { row.hidden = true; return; }
-    row.hidden = false;
-    renderRecsStrip(items);
-  } catch (e) { row.hidden = true; }
+    mergeAndRender(socialItems, finalize(rawItems));
+  } catch (e) {
+    // ApiGet.ru недоступен — социальные рекомендации всё равно можно
+    // показать, они не зависят от внешнего API.
+    mergeAndRender(socialItems, []);
+  }
 }
 
 function renderRecsStrip(items) {
   document.getElementById("recsStrip").innerHTML = items.map(function (item, idx) {
+    var socialBadge = "";
+    if (item.social && item.social.count) {
+      var names = item.social.names.slice(0, 2).join(", ");
+      var extra = item.social.count > item.social.names.length ? (" +" + (item.social.count - item.social.names.length)) : "";
+      socialBadge = '<div class="rec-social">❤ ' + escapeHtml(names || "друзьям") + escapeHtml(extra) + '</div>';
+    }
     return '<div class="rec-card" data-rec-idx="' + idx + '">' +
       posterHtml(item.posterUrl) +
+      socialBadge +
       '<div class="rec-title">' + escapeHtml(item.title) + '</div>' +
       '<button class="btn small" type="button" data-rec-add="' + idx + '">+ В список</button>' +
       '<button class="btn small linklike" type="button" data-rec-dismiss="' + idx + '" style="width:100%;">Не интересно ✕</button>' +

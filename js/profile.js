@@ -28,6 +28,11 @@ async function openProfileDialog() {
   document.getElementById("achvList").innerHTML = '<span class="mono" style="color:var(--muted);font-size:0.8rem;">считаем…</span>';
   document.getElementById("profileDialog").showModal();
   renderAchievements();
+  activeRecapKind = "month";
+  Array.prototype.forEach.call(document.querySelectorAll("[data-recap]"), function (btn) {
+    btn.classList.toggle("active", btn.getAttribute("data-recap") === activeRecapKind);
+  });
+  renderRecap(activeRecapKind);
 }
 
 document.getElementById("saveNameBtn2").addEventListener("click", async function () {
@@ -92,3 +97,91 @@ async function renderAchievements() {
     return '<span class="achv' + (d.on ? "" : " locked") + '">' + (d.on ? "✓ " : "") + d.label + '</span>';
   }).join("");
 }
+
+// ---------- Итоги месяца/года ----------
+// Считается целиком из уже загруженных данных (state.myTitles, которые
+// содержит и свои оценки/отзывы с датами) — ни одного лишнего запроса к
+// базе, не говоря уже о Kinopoisk.dev.
+
+var activeRecapKind = "month";
+
+function periodRange(kind) {
+  var now = new Date();
+  if (kind === "year") {
+    return {
+      start: new Date(now.getFullYear(), 0, 1),
+      prevStart: new Date(now.getFullYear() - 1, 0, 1),
+      prevEnd: new Date(now.getFullYear(), 0, 1)
+    };
+  }
+  return {
+    start: new Date(now.getFullYear(), now.getMonth(), 1),
+    prevStart: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+    prevEnd: new Date(now.getFullYear(), now.getMonth(), 1)
+  };
+}
+
+function inRange(iso, start, end) {
+  if (!iso) return false;
+  var t = new Date(iso).getTime();
+  return t >= start.getTime() && (!end || t < end.getTime());
+}
+
+function computeRecap(kind) {
+  var r = periodRange(kind);
+  var watchedNow = 0, watchedPrev = 0;
+  var ratingsNow = [], commentsNow = 0;
+  var genreCount = {};
+  state.myTitles.forEach(function (ut) {
+    var t = ut.titles;
+    if (ut.status === "watched") {
+      if (inRange(ut.updated_at, r.start, null)) {
+        watchedNow++;
+        (t.genre_names || []).forEach(function (g) { genreCount[g] = (genreCount[g] || 0) + 1; });
+      } else if (inRange(ut.updated_at, r.prevStart, r.prevEnd)) {
+        watchedPrev++;
+      }
+    }
+    (t.ratings || []).forEach(function (rt) {
+      if (rt.user_id === state.myProfile.id && inRange(rt.created_at, r.start, null)) ratingsNow.push(rt.value);
+    });
+    (t.comments || []).forEach(function (c) {
+      if (c.user_id === state.myProfile.id && inRange(c.created_at, r.start, null)) commentsNow++;
+    });
+  });
+  var topGenre = Object.keys(genreCount).sort(function (a, b) { return genreCount[b] - genreCount[a]; })[0] || null;
+  var avgRating = ratingsNow.length ? ratingsNow.reduce(function (a, b) { return a + b; }, 0) / ratingsNow.length : null;
+  return { watchedNow: watchedNow, watchedPrev: watchedPrev, ratingsCount: ratingsNow.length, commentsNow: commentsNow, topGenre: topGenre, avgRating: avgRating };
+}
+
+function renderRecap(kind) {
+  var box = document.getElementById("recapBox");
+  var r = computeRecap(kind);
+  var periodWord = kind === "year" ? "в этом году" : "в этом месяце";
+  var prevWord = kind === "year" ? "в прошлом году" : "в прошлом месяце";
+  var diff = r.watchedNow - r.watchedPrev;
+  var diffNote = "";
+  if (r.watchedPrev || r.watchedNow) {
+    diffNote = diff > 0 ? (" (на " + diff + " больше, чем " + prevWord + ")")
+      : diff < 0 ? (" (на " + Math.abs(diff) + " меньше, чем " + prevWord + ")")
+      : (" (столько же, сколько " + prevWord + ")");
+  }
+  if (!r.watchedNow && !r.ratingsCount && !r.commentsNow) {
+    box.innerHTML = '<p class="empty-note">Пока не за что зацепиться' + (kind === "year" ? " в этом году" : " в этом месяце") + ' — самое время что-нибудь посмотреть 🍿</p>';
+    return;
+  }
+  box.innerHTML =
+    '<p style="margin:4px 0;">Просмотрено ' + periodWord + ': <strong class="mono">' + r.watchedNow + '</strong>' +
+      '<span class="mono" style="color:var(--muted);font-size:0.8rem;">' + escapeHtml(diffNote) + '</span></p>' +
+    (r.ratingsCount ? '<p style="margin:4px 0;">Оценок поставлено: <strong class="mono">' + r.ratingsCount + '</strong>' + (r.avgRating ? ' — в среднем ' + r.avgRating.toFixed(1) + '★' : '') + '</p>' : '') +
+    (r.commentsNow ? '<p style="margin:4px 0;">Отзывов написано: <strong class="mono">' + r.commentsNow + '</strong></p>' : '') +
+    (r.topGenre ? '<p style="margin:4px 0;">Любимый жанр периода: <strong>' + escapeHtml(r.topGenre) + '</strong></p>' : '');
+}
+
+Array.prototype.forEach.call(document.querySelectorAll("[data-recap]"), function (btn) {
+  btn.addEventListener("click", function () {
+    activeRecapKind = btn.getAttribute("data-recap");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-recap]"), function (b) { b.classList.toggle("active", b === btn); });
+    renderRecap(activeRecapKind);
+  });
+});

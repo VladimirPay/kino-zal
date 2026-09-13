@@ -9,6 +9,7 @@ import { bindClose } from "./utils.js";
 
 import "./mylist.js";
 import "./catalog.js";
+import "./matchgame.js";
 import "./chat.js";
 import "./messages.js";
 import "./friends.js";

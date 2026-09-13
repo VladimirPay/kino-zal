@@ -8,6 +8,8 @@ import { loadMyList } from "./mylist.js";
 import { renderChat } from "./chat.js";
 import { loadDmConversations } from "./messages.js";
 import { loadFriends, loadFriendsFeed } from "./friends.js";
+import { loadMatchesList } from "./matchgame.js";
+import { showStatus } from "./utils.js";
 
 export function subscribeRealtime() {
   if (state.realtimeChannel) return;
@@ -30,5 +32,17 @@ export function subscribeRealtime() {
     .on("postgres_changes", {event: "*", schema: "public", table: "dm_messages"}, function () { if (state.activeSection === "messages") loadDmConversations(); })
     .on("postgres_changes", {event: "*", schema: "public", table: "friend_requests"}, function () { if (state.activeSection === "friends") loadFriends(); })
     .on("postgres_changes", {event: "*", schema: "public", table: "activity_feed"}, function () { if (state.activeSection === "friends") loadFriendsFeed(); })
+    // Совпадение в игре «Матч» может случиться и когда вы не открывали эту
+    // вкладку (ваш друг только что лайкнул то же, что понравилось вам
+    // раньше) — уведомляем сразу через баннер статуса, независимо от того,
+    // где вы сейчас находитесь на сайте.
+    .on("postgres_changes", {event: "INSERT", schema: "public", table: "matches"}, function (payload) {
+      var m = payload.new;
+      if (m.user_a !== state.myProfile.id && m.user_b !== state.myProfile.id) return;
+      var otherId = m.user_a === state.myProfile.id ? m.user_b : m.user_a;
+      var otherName = (state.profilesById[otherId] || {}).display_name || "друг";
+      showStatus("🎉 У вас совпадение с " + otherName + " во вкладке «Матч»!");
+      if (state.activeSection === "match") loadMatchesList();
+    })
     .subscribe();
 }

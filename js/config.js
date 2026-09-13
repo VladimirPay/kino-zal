@@ -12,6 +12,7 @@ export const KP_TYPES = ["movie", "tv-series", "cartoon", "anime", "animated-ser
 export const SECTIONS = [
   {key: "mylist", label: "Мой список"},
   {key: "catalog", label: "Каталог"},
+  {key: "match", label: "Матч"},
   {key: "chat", label: "Чат"},
   {key: "messages", label: "Сообщения"},
   {key: "friends", label: "Друзья"},
