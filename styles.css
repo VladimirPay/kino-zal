@@ -22,6 +22,36 @@
 }
 *{box-sizing:border-box;}
 html,body{background:var(--bg);}
+/* Скроллбары под дизайн сайта — иначе дефолтный серый системный скроллбар
+   (особенно заметно на тёмной теме) выглядит чужеродной полоской поверх
+   кремового/тёмного фона. scrollbar-width/scrollbar-color — стандартный
+   способ (Firefox и большинство актуальных браузеров), ::-webkit-scrollbar*
+   — для Chrome/Edge/Safari, которые его пока не поддерживают. Красим и
+   основную полосу прокрутки страницы (html), и все внутренние блоки со
+   своей прокруткой — ленту рекомендаций, диалоги, чат, список ЛС, список
+   эмодзи — единым акцентным цветом, чтобы смотрелось как часть сайта, а не
+   как браузерный элемент поверх него.*/
+html,.rec-strip,.dialog-inner,.chat-log,.emoji-panel,.dm-list{
+  scrollbar-width:thin; scrollbar-color:var(--accent) var(--surface-2);
+}
+html::-webkit-scrollbar,.rec-strip::-webkit-scrollbar,.dialog-inner::-webkit-scrollbar,
+.chat-log::-webkit-scrollbar,.emoji-panel::-webkit-scrollbar,.dm-list::-webkit-scrollbar{
+  width:10px; height:10px;
+}
+html::-webkit-scrollbar-track,.rec-strip::-webkit-scrollbar-track,.dialog-inner::-webkit-scrollbar-track,
+.chat-log::-webkit-scrollbar-track,.emoji-panel::-webkit-scrollbar-track,.dm-list::-webkit-scrollbar-track{
+  background:var(--surface-2);
+}
+html::-webkit-scrollbar-thumb,.rec-strip::-webkit-scrollbar-thumb,.dialog-inner::-webkit-scrollbar-thumb,
+.chat-log::-webkit-scrollbar-thumb,.emoji-panel::-webkit-scrollbar-thumb,.dm-list::-webkit-scrollbar-thumb{
+  background-color:var(--accent); border-radius:20px;
+  border:2px solid var(--surface-2); background-clip:padding-box;
+}
+html::-webkit-scrollbar-thumb:hover,.rec-strip::-webkit-scrollbar-thumb:hover,.dialog-inner::-webkit-scrollbar-thumb:hover,
+.chat-log::-webkit-scrollbar-thumb:hover,.emoji-panel::-webkit-scrollbar-thumb:hover,.dm-list::-webkit-scrollbar-thumb:hover{
+  background-color:var(--accent-2);
+}
+html::-webkit-scrollbar-corner{background:var(--surface-2);}
 body{color:var(--ink);margin:0;font-family:'Source Serif 4',Georgia,'Times New Roman',serif;}
 #app-shell{max-width:1080px;margin:0 auto;padding:20px 16px 96px;position:relative;}
 .mono{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
