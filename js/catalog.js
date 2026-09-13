@@ -56,7 +56,7 @@ import { registerSectionLoader } from "./router.js";
 // для поиска (люди ищут разное и часто), для жанровой подборки (список
 // топ-жанров и так пересчитывается редко) и для карточки одного тайтла
 // (метаданные фильма практически не меняются).
-var KP_CACHE_TTL_MS = { "search": 6 * 60 * 60 * 1000, "get-random": 24 * 60 * 60 * 1000, "get-info": 7 * 24 * 60 * 60 * 1000 };
+var KP_CACHE_TTL_MS = { "search": 6 * 60 * 60 * 1000, "get-random": 24 * 60 * 60 * 1000, "get-top500": 24 * 60 * 60 * 1000, "get-info": 7 * 24 * 60 * 60 * 1000 };
 
 function kpCacheKey(method, params) {
   var sorted = {};
@@ -148,7 +148,19 @@ function normalizeApiGetItem(raw) {
   var voteAverage = (raw.rating && raw.rating.kinopoisk && typeof raw.rating.kinopoisk.value === "number")
     ? raw.rating.kinopoisk.value : null;
   if (voteAverage) voteAverage = Math.round(voteAverage * 10) / 10;
-  var mediaType = raw.type === "series" ? "tv-series" : (KP_TYPES.indexOf(raw.type) !== -1 ? raw.type : "movie");
+  // Сколько человек оценили на Кинопоиске — это и есть настоящая
+  // «популярность» (в отличие от voteAverage, который легко натягивает
+  // маленькая но очень активная аудитория). Используется для сортировки
+  // «Популярные» и для подборки по умолчанию в loadCatalogDefault.
+  var voteCount = (raw.rating && raw.rating.kinopoisk && typeof raw.rating.kinopoisk.count === "number")
+    ? raw.rating.kinopoisk.count : null;
+  // ВАЖНО: у ApiGet.ru (в отличие от старого Kinopoisk.dev) поле type
+  // принимает всего два значения — "movie" и "serial" (сериалы). Раньше тут
+  // стояла проверка raw.type === "series" (с "s" на конце) — она никогда не
+  // совпадала с реальным значением "serial", поэтому ВСЕ сериалы уходили в
+  // ветку по умолчанию и показывались на сайте как фильмы (это и была
+  // причина жалобы «Игра престолов — это не фильм, а сериал»).
+  var mediaType = raw.type === "serial" ? "tv-series" : (KP_TYPES.indexOf(raw.type) !== -1 ? raw.type : "movie");
   return {
     kpId: raw.kinopoisk_id,
     mediaType: mediaType,
@@ -158,7 +170,8 @@ function normalizeApiGetItem(raw) {
     genre: genreNames.slice(0, 3).join(", ") || null,
     overview: raw.description || raw.tagline || null,
     posterUrl: posterUrl,
-    voteAverage: voteAverage || null
+    voteAverage: voteAverage || null,
+    voteCount: voteCount || null
   };
 }
 
@@ -206,33 +219,31 @@ async function searchKp(query) {
 // теперь при открытии сразу подгружается подборка, чтобы было что
 // посмотреть/пролистать, не печатая запрос.
 //
-// ПОЧЕМУ НЕ ПРОСТО get-random БЕЗ ФИЛЬТРОВ. Первая версия делала один запрос
-// get-random без фильтров — а без фильтра он тянет случайные тайтлы из ВСЕЙ
-// базы Кинопоиска (сотни тысяч штук), включая крайне нишевые и
-// малорейтинговые — отсюда и жалоба «выпадают какие-то не пойми какие
-// фильмы». Кроме того, у ApiGet.ru жёсткий лимит count 1–20 за один запрос
-// (раньше здесь стояло 30 — с превышением документированного максимума
-// нельзя быть уверенным, что сервис не обрежет или не отклонит запрос).
-//
-// У ApiGet.ru нет отдельного метода «популярное»/«тренды» (только
-// list/search/get-random/get-updates — без сортировки по рейтингу или
-// количеству голосов на стороне сервера). Поэтому подборку «на что все
-// сейчас смотрят» имитируем сами: делаем НЕСКОЛЬКО запросов get-random по
-// самым массовым жанрам (по одному на жанр, в пределах лимита count=20
-// каждый), объединяем результаты и оставляем только тайтлы с реальным и
-// достаточно высоким рейтингом Кинопоиска — это и есть прокси «популярности»
-// при отсутствии готового рейтинга просмотров/поиска у самого ApiGet.ru.
-//
-// ЭКОНОМИЯ. Каждая жанровая комбинация кэшируется в общей таблице kp_cache
-// отдельно (см. kpCacheKey) на 24 часа (KP_CACHE_TTL_MS["get-random"]) и это
-// кэш ОБЩИЙ для всех пользователей сайта — то есть по факту это всего
-// ~5 успешных запросов (5 копеек) на весь сайт раз в сутки, а не при каждом
-// открытии вкладки каждым человеком. sessionStorage-кэш ниже — просто чтобы
-// не дёргать даже Supabase-кэш при каждом повторном открытии вкладки в
-// рамках одной сессии браузера.
+// ИСТОРИЯ ПОДХОДОВ (для будущих правок).
+// 1) get-random без фильтров — тянет случайные тайтлы из ВСЕЙ базы (сотни
+//    тысяч), включая нишевые и малорейтинговые.
+// 2) get-random с фильтром genre по нескольким жанрам — у ApiGet.ru именно
+//    это сочетание (get-random + genre) стабильно ломается (пустой
+//    нераспознаваемый ответ), похоже на баг на их стороне.
+// 3) search с фильтром genre — уже не ломается, но search без текстового
+//    запроса не отсортирован по популярности, отдаёт что-то вроде
+//    «первые N по внутреннему порядку базы» — оттуда и жалоба «выпадают
+//    какие-то мультики и малоизвестные штуки, где нормальные фильмы».
+//    Дело в том, что сортировка «по рейтингу» на таком случайном срезе
+//    поднимает наверх тайтлы с высокой оценкой, но ОЧЕНЬ малым числом
+//    голосов (условно 9.3 при 40 оценках) — формально «рейтинг выше», а
+//    по факту почти никто не смотрел.
+// 4) ТЕКУЩИЙ ПОДХОД — get-top500: собственный топ Кинопоиска у ApiGet.ru
+//    (входят только тайтлы с 20 000+ оценок — это и есть реальная
+//    «известность», а не случайная малая выборка). Берём топ-500 ОДНИМ
+//    запросом (дешевле шести!), делим на фильмы/сериалы и сортируем КАЖДУЮ
+//    группу по числу голосов (voteCount) — это и есть настоящая
+//    «популярность» (много кто посмотрел и оценил), в отличие от голой
+//    средней оценки, которую легко натянуть маленькой но активной
+//    аудиторией. Затем берём поровну топ-фильмов и топ-сериалов, чтобы в
+//    подборке не оказалось перекоса в одну сторону.
 var CATALOG_DEFAULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-var CATALOG_POPULAR_GENRES = ["драма", "боевик", "комедия", "фантастика", "триллер", "мультфильм"];
-var CATALOG_POPULAR_MIN_RATING = 6.5;
+var CATALOG_POPULAR_HALF = 20; // поровну фильмов и сериалов, итого до 40
 
 function readCatalogDefaultCache() {
   try { return JSON.parse(sessionStorage.getItem("kz_catalog_default_cache") || "null"); } catch (e) { return null; }
@@ -252,47 +263,21 @@ async function loadCatalogDefault() {
   }
   document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Загружаем подборку…</p>';
   try {
-    // Каждый жанр запрашивается отдельно — если один запрос не удался
-    // (например, именно эта жанровая связка ни разу не кэширована и
-    // ApiGet.ru прямо сейчас недоступен), остальные жанры всё равно
-    // подгрузятся, просто подборка выйдет чуть меньше.
-    //
-    // ВАЖНО: раньше здесь был метод get-random с фильтром genre, но именно
-    // это сочетание (get-random + genre) у ApiGet.ru сейчас стабильно ломается
-    // — возвращает пустое нераспознаваемое тело ответа, хотя параметр genre
-    // официально документирован (проверено: get-random без genre работает,
-    // search с genre тоже работает — сбоит только их пара). Похоже на баг на
-    // стороне ApiGet.ru. Поэтому жанровую выборку теперь берём через search
-    // без текста запроса, только с фильтром по жанру — формат ответа тот же.
-    var responses = await Promise.all(CATALOG_POPULAR_GENRES.map(function (g) {
-      return kpFetch("search", { genre: g, limit: 20 }).catch(function () { return null; });
-    }));
-    var seen = {};
-    var pool = [];
-    responses.forEach(function (res) {
-      if (!res || !res.results) return;
-      res.results.map(normalizeApiGetItem).forEach(function (item) {
-        var key = item.mediaType + ":" + item.kpId;
-        if (!seen[key]) { seen[key] = true; pool.push(item); }
-      });
-    });
-    if (!pool.length) {
+    var res = await kpFetch("get-top500", { limit: 500 });
+    var items = (res.results || []).map(normalizeApiGetItem);
+    if (!items.length) {
       state.catalogResults = [];
       showStatus("Не удалось загрузить подборку из ApiGet.ru — попробуйте открыть вкладку заново чуть позже.", true);
       applyCatalogSortAndRender();
       return;
     }
-    // Оставляем только достаточно высокорейтинговые тайтлы — это и есть
-    // «популярное» при отсутствии отдельного метода у ApiGet.ru. Если
-    // фильтр слишком жёсткий (мало что кэшировано с высоким рейтингом прямо
-    // сейчас) — постепенно смягчаем его, лишь бы каталог не остался пустым.
-    var popular = pool.filter(function (it) { return it.voteAverage != null && it.voteAverage >= CATALOG_POPULAR_MIN_RATING; });
-    if (popular.length < 10) popular = pool.filter(function (it) { return it.voteAverage != null; });
-    if (popular.length < 5) popular = pool;
-    popular.sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
-    var items = popular.slice(0, 40);
-    state.catalogResults = items;
-    writeCatalogDefaultCache(items);
+    var byVotes = function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); };
+    var movies = items.filter(function (it) { return !isSeriesMediaType(it.mediaType); }).sort(byVotes);
+    var series = items.filter(function (it) { return isSeriesMediaType(it.mediaType); }).sort(byVotes);
+    var picked = movies.slice(0, CATALOG_POPULAR_HALF).concat(series.slice(0, CATALOG_POPULAR_HALF));
+    if (!picked.length) picked = items.slice().sort(byVotes).slice(0, CATALOG_POPULAR_HALF * 2);
+    state.catalogResults = picked;
+    writeCatalogDefaultCache(picked);
   } catch (e) {
     state.catalogResults = [];
     showStatus("Не удалось загрузить подборку из ApiGet.ru: " + e.message, true);
@@ -312,7 +297,12 @@ registerSectionLoader("catalog", function () {
 function sortCatalogResults() {
   var sortKey = document.getElementById("catalogSort").value;
   var arr = state.catalogResults;
-  if (sortKey === "rating") {
+  if (sortKey === "popular") {
+    // По числу оценок на Кинопоиске — реальная известность/просматриваемость,
+    // а не просто высокий средний балл у малоизвестного тайтла с горсткой
+    // голосов (см. voteCount в normalizeApiGetItem).
+    arr.sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); });
+  } else if (sortKey === "rating") {
     arr.sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
   } else if (sortKey === "year") {
     arr.sort(function (a, b) { return (b.year || 0) - (a.year || 0); });
@@ -653,13 +643,15 @@ export async function loadRecommendations() {
   try {
     // Используем search с фильтром по жанру, а не get-random — у ApiGet.ru
     // сочетание get-random + genre сейчас ломается (см. подробный комментарий
-    // в loadCatalogDefault выше). search не отсортирован по рейтингу, поэтому
-    // просим с запасом и сортируем сами, оставляя самые высокорейтинговые —
-    // как раньше делал Kinopoisk.dev через sortField.
-    var res = await kpFetch("search", { genre: topGenres[0], limit: 20 });
+    // в loadCatalogDefault выше). limit доведён до максимума (100, дороже не
+    // становится — оплата за запрос, а не за элемент), чтобы было из чего
+    // выбирать: сортируем по voteCount (числу оценок), а не по voteAverage —
+    // иначе наверх лезет какая-нибудь малоизвестная вещь с рейтингом 9+ при
+    // паре десятков голосов вместо реально популярного тайтла в этом жанре.
+    var res = await kpFetch("search", { genre: topGenres[0], limit: 100 });
     var rawItems = (res.results || [])
       .map(normalizeApiGetItem)
-      .sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
+      .sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); });
     writeRecsCache({ signature: signature, fetchedAt: Date.now(), items: rawItems });
     mergeAndRender(socialItems, finalize(rawItems));
   } catch (e) {
