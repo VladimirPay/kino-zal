@@ -61,14 +61,37 @@ function cardHtml(ut) {
     '</article>';
 }
 
+// loadMyList() перезапускается по Supabase Realtime на любое изменение в
+// titles/ratings/comments/comment_likes — в том числе на такие, что вообще
+// не меняют то, что видно на карточках этого списка (например, фоновая
+// подгрузка ссылки на трейлер при открытии чьей-то карточки). Раньше это
+// каждый раз полностью стирало и перерисовывало всю сетку — визуально это
+// и было той самопроизвольной «перезагрузкой» рядов. Сравниваем отпечаток
+// того, что реально показывается на карточках, и трогаем DOM только если
+// он и правда изменился.
+var lastGridFingerprint = null;
+
+function gridFingerprint(list) {
+  return JSON.stringify(list.map(function (ut) {
+    var t = ut.titles;
+    var avg = ratingAvg(t);
+    return [ut.id, ut.status, t.id, t.title, t.year, t.genre, t.poster_url, (t.ratings || []).length, avg];
+  }));
+}
+
 function renderGrid() {
   var grid = document.getElementById("grid");
   var list = state.myTitles.filter(titleMatches);
   document.getElementById("resultCount").textContent = list.length + " " + pluralRu(list.length, ["запись", "записи", "записей"]);
   if (!list.length) {
+    if (lastGridFingerprint === "empty") return;
+    lastGridFingerprint = "empty";
     grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Список пуст. Откройте вкладку «Каталог», найдите фильм или сериал и нажмите «Добавить в список».</p>';
     return;
   }
+  var fp = gridFingerprint(list);
+  if (fp === lastGridFingerprint) return;
+  lastGridFingerprint = fp;
   grid.innerHTML = list.map(cardHtml).join("");
   Array.prototype.forEach.call(grid.querySelectorAll(".card"), function (card) {
     card.addEventListener("click", function () { openTitleDetail(parseInt(card.getAttribute("data-title-id"), 10)); });

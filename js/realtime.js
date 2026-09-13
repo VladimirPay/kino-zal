@@ -11,14 +11,29 @@ import { loadFriends, loadFriendsFeed } from "./friends.js";
 import { loadMatchesList } from "./matchgame.js";
 import { showStatus } from "./utils.js";
 
+// Правки titles/ratings/comments/comment_likes часто прилетают пачками за
+// пару секунд (например: один пользователь поставил оценку и написал
+// комментарий, или фоновая подгрузка трейлера при первом открытии карточки
+// тоже пишет в titles). Без задержки каждое такое событие немедленно гоняло
+// бы полный loadMyList() — то есть повторную перерисовку всей сетки «Мой
+// список» на КАЖДОЕ отдельное изменение. Схлопываем события в одном коротком
+// окне в один вызов — самая частая причина того, что ряды «Мой список»
+// выглядели самопроизвольно перезагружающимися.
+var myListReloadTimer = null;
+function scheduleMyListReload() {
+  if (state.activeSection !== "mylist") return;
+  if (myListReloadTimer) clearTimeout(myListReloadTimer);
+  myListReloadTimer = setTimeout(function () { myListReloadTimer = null; loadMyList(); }, 400);
+}
+
 export function subscribeRealtime() {
   if (state.realtimeChannel) return;
   state.realtimeChannel = sb.channel("public:kinozal")
-    .on("postgres_changes", {event: "*", schema: "public", table: "titles"}, function () { if (state.activeSection === "mylist") loadMyList(); })
-    .on("postgres_changes", {event: "*", schema: "public", table: "user_titles"}, function () { if (state.activeSection === "mylist") loadMyList(); })
-    .on("postgres_changes", {event: "*", schema: "public", table: "ratings"}, function () { if (state.activeSection === "mylist") loadMyList(); })
-    .on("postgres_changes", {event: "*", schema: "public", table: "comments"}, function () { if (state.activeSection === "mylist") loadMyList(); })
-    .on("postgres_changes", {event: "*", schema: "public", table: "comment_likes"}, function () { if (state.activeSection === "mylist") loadMyList(); })
+    .on("postgres_changes", {event: "*", schema: "public", table: "titles"}, scheduleMyListReload)
+    .on("postgres_changes", {event: "*", schema: "public", table: "user_titles"}, scheduleMyListReload)
+    .on("postgres_changes", {event: "*", schema: "public", table: "ratings"}, scheduleMyListReload)
+    .on("postgres_changes", {event: "*", schema: "public", table: "comments"}, scheduleMyListReload)
+    .on("postgres_changes", {event: "*", schema: "public", table: "comment_likes"}, scheduleMyListReload)
     .on("postgres_changes", {event: "INSERT", schema: "public", table: "chat_messages"}, function (payload) {
       var row = payload.new;
       row.profiles = { display_name: (state.profilesById[row.user_id] || {}).display_name || "…" };

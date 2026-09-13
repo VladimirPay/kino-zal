@@ -22,23 +22,48 @@ export async function openTitleDetail(titleId, opts) {
   // обычное открытие диалога по клику.
   dlg.classList.toggle("roulette", !!(opts && opts.spin));
   dlg.showModal();
-  await renderTitleDetail(titleId);
+  await renderTitleDetail(titleId, { showLoading: true });
 }
 
 // Позволяет другим модулям (например, «Мой список» после перезагрузки данных)
 // обновить уже открытый диалог тайтла, ничего не делая, если он закрыт.
 export function refreshOpenDetailIfAny() {
-  if (state.openTitleId != null) renderTitleDetail(state.openTitleId);
+  if (state.openTitleId == null) return;
+  // Если это открытая нами же карточка и мы буквально только что сами
+  // записали в неё изменение (статус/оценка/комментарий/лайк — см.
+  // noteLocalWrite ниже), не перерисовываем её ещё раз по эху от Supabase
+  // Realtime о нашей же собственной записи: сама карточка уже показывает
+  // актуальное состояние, а повторная перерисовка только мерцала бы. Если
+  // же карточку в это время поменял кто-то другой (общие комментарии и
+  // оценки видны всем), это окно уже истечёт и обновление честно пройдёт.
+  if (Date.now() - (lastLocalWriteAt[state.openTitleId] || 0) < 1500) return;
+  renderTitleDetail(state.openTitleId, { showLoading: false });
 }
 
 document.getElementById("detailDialog").addEventListener("close", function () {
   state.openTitleId = null;
 });
 
-async function renderTitleDetail(titleId) {
+var lastLocalWriteAt = {};
+function noteLocalWrite(titleId) { lastLocalWriteAt[titleId] = Date.now(); }
+
+// Растёт на каждый вызов renderTitleDetail — если пока шёл запрос к базе
+// запустился более новый перерендер того же тайтла (например, быстро друг
+// за другом прилетели наш локальный вызов и эхо от Realtime), устаревший
+// результат просто отбрасывается и не перезатирает уже показанное.
+var renderGeneration = 0;
+
+async function renderTitleDetail(titleId, opts) {
+  var showLoading = !opts || opts.showLoading !== false;
   var inner = document.getElementById("detailInner");
-  inner.innerHTML = '<button class="close-x" data-close="detailDialog">✕</button><p class="empty-note">Загрузка…</p>';
-  bindClose(inner);
+  var myGen = ++renderGeneration;
+  // «Загрузка…» показываем только при первом открытии карточки — на
+  // обновлениях после своих же действий или по Realtime это стирало и
+  // заново отрисовывало весь диалог, что и выглядело как мерцание.
+  if (showLoading) {
+    inner.innerHTML = '<button class="close-x" data-close="detailDialog">✕</button><p class="empty-note">Загрузка…</p>';
+    bindClose(inner);
+  }
 
   const [tRes, utRes] = await Promise.all([
     sb.from("titles")
@@ -46,8 +71,9 @@ async function renderTitleDetail(titleId) {
       .eq("id", titleId).limit(1),
     sb.from("user_titles").select("*").eq("title_id", titleId).eq("user_id", state.myProfile.id).limit(1)
   ]);
-  // Диалог могли закрыть или открыть другой тайтл, пока шёл запрос.
-  if (state.openTitleId !== titleId) return;
+  // Диалог могли закрыть, открыть другой тайтл, или запустить более свежий
+  // перерендер того же тайтла, пока шёл запрос.
+  if (state.openTitleId !== titleId || myGen !== renderGeneration) return;
   if (tRes.error || !tRes.data || !tRes.data.length) {
     inner.innerHTML = '<button class="close-x" data-close="detailDialog">✕</button><p class="empty-note">Не удалось загрузить карточку' + (tRes.error ? ": " + escapeHtml(tRes.error.message) : "") + '.</p>';
     bindClose(inner);
@@ -90,7 +116,11 @@ async function renderTitleDetail(titleId) {
   // карточку заново (без повторного похода за остальными данными).
   if (!t.trailer_url && t.kp_id) {
     ensureTrailerUrl(t).then(function (url) {
-      if (url && state.openTitleId === titleId) { t.trailer_url = url; renderTitleDetail(titleId); }
+      if (url && state.openTitleId === titleId) {
+        t.trailer_url = url;
+        noteLocalWrite(titleId);
+        renderTitleDetail(titleId, { showLoading: false });
+      }
     });
   }
 
@@ -132,7 +162,8 @@ async function renderTitleDetail(titleId) {
         if (error) { showStatus("Не удалось добавить: " + error.message, true); return; }
         showStatus('Добавлено в «' + STATUS_LABEL[newStatus] + '»');
       }
-      renderTitleDetail(titleId);
+      noteLocalWrite(titleId);
+      renderTitleDetail(titleId, { showLoading: false });
       loadMyList();
     });
   });
@@ -141,7 +172,8 @@ async function renderTitleDetail(titleId) {
       const val = parseInt(btn.getAttribute("data-star"), 10);
       const { error } = await sb.from("ratings").upsert({title_id: t.id, user_id: state.myProfile.id, value: val}, {onConflict: "title_id,user_id"});
       if (error) { showStatus("Не удалось сохранить оценку: " + error.message, true); return; }
-      renderTitleDetail(titleId);
+      noteLocalWrite(titleId);
+      renderTitleDetail(titleId, { showLoading: false });
     });
   });
   inner.querySelector("#commentForm").addEventListener("submit", async function (ev) {
@@ -150,13 +182,15 @@ async function renderTitleDetail(titleId) {
     if (!text) return;
     const { error } = await sb.from("comments").insert({title_id: t.id, user_id: state.myProfile.id, text: text});
     if (error) { showStatus("Не удалось отправить комментарий: " + error.message, true); return; }
-    renderTitleDetail(titleId);
+    noteLocalWrite(titleId);
+    renderTitleDetail(titleId, { showLoading: false });
   });
   Array.prototype.forEach.call(inner.querySelectorAll("[data-del-comment]"), function (btn) {
     btn.addEventListener("click", async function () {
       const { error } = await sb.from("comments").delete().eq("id", btn.getAttribute("data-del-comment"));
       if (error) { showStatus("Не удалось удалить комментарий: " + error.message, true); return; }
-      renderTitleDetail(titleId);
+      noteLocalWrite(titleId);
+      renderTitleDetail(titleId, { showLoading: false });
     });
   });
   Array.prototype.forEach.call(inner.querySelectorAll("[data-like-comment]"), function (btn) {
@@ -168,7 +202,8 @@ async function renderTitleDetail(titleId) {
       } else {
         await sb.from("comment_likes").insert({comment_id: cid, user_id: state.myProfile.id});
       }
-      renderTitleDetail(titleId);
+      noteLocalWrite(titleId);
+      renderTitleDetail(titleId, { showLoading: false });
     });
   });
   Array.prototype.forEach.call(inner.querySelectorAll("[data-open-user]"), function (btn) {
