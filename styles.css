@@ -3,7 +3,12 @@
   --accent:#b9791f; --accent-ink:#3a2708; --accent-2:#8a2f40; --want:#3f6690; --watching:#b9791f;
   --watched:#3c7048; --border:rgba(36,29,21,0.14); --shadow:rgba(36,29,21,0.16);
 }
-@media (prefers-color-scheme: dark){
+/* На телефонах экран мельче и обычно ярче на солнце — светлая (кремовая)
+   тема на них воспринимается блёкло. Поэтому на узких экранах включаем
+   тёмную палитру по умолчанию, даже если у самой системы стоит светлая
+   тема — как и раньше, data-theme="light" (если когда-нибудь появится
+   переключатель темы) сможет её отключить. */
+@media (prefers-color-scheme: dark), (max-width: 640px){
   :root:not([data-theme="light"]){
     --bg:#161210; --surface:#211b16; --surface-2:#2a2219; --ink:#f3ead9; --muted:#b7a992;
     --accent:#e3a542; --accent-ink:#1c1206; --accent-2:#d1697c; --want:#87acd4; --watching:#e3a542;
@@ -139,8 +144,22 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 .chat-msg.mine{align-self:flex-end;background:color-mix(in srgb, var(--accent) 22%, var(--surface-2));}
 .chat-msg .who{font-size:0.72rem;color:var(--muted);margin-bottom:2px;}
 .chat-msg .when{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--muted);margin-left:6px;}
-.chat-input-row{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);}
-.chat-input-row input{flex:1;font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);}
+.chat-input-row{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);align-items:center;}
+.chat-input-row input[type="text"]{flex:1;font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);}
+.chat-input-row label.btn{display:flex;align-items:center;justify-content:center;padding:7px 10px;}
+.chat-img{display:block;width:220px;max-width:60vw;height:160px;border-radius:10px;margin-top:4px;cursor:zoom-in;object-fit:cover;background:var(--surface-2);}
+
+/* Панель эмодзи (набор сообщения и реакции) — фиксированное позиционирование
+   ставится через JS (js/emoji.js), тут только внешний вид. */
+.emoji-panel{width:236px;max-height:220px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:2px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 14px 30px -14px var(--shadow);z-index:50;}
+.emoji-panel button{width:28px;height:28px;font-size:1.15rem;line-height:1;border:none;background:none;cursor:pointer;border-radius:6px;padding:0;}
+.emoji-panel button:hover{background:var(--surface-2);}
+
+/* Реакции под сообщением */
+.reaction-bar{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}
+.reaction-pill{font-size:0.78rem;line-height:1.4;border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:12px;padding:0px 7px;cursor:pointer;}
+.reaction-pill.mine{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 18%, var(--surface));}
+.reaction-add{font-size:0.78rem;border:1px dashed var(--border);background:none;color:var(--muted);border-radius:12px;padding:0px 7px;cursor:pointer;}
 
 /* DMs */
 .dm-layout{display:grid;grid-template-columns:240px 1fr;gap:14px;}

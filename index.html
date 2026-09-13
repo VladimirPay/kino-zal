@@ -84,6 +84,8 @@
       <div class="chat-box">
         <div class="chat-log" id="chatLog"></div>
         <form class="chat-input-row" id="chatForm">
+          <button class="btn" id="chatEmojiBtn" type="button" title="Эмодзи">😀</button>
+          <label class="btn" title="Прикрепить картинку" style="margin:0;">📎<input id="chatImageInput" type="file" accept="image/*" hidden></label>
           <input id="chatInput" type="text" maxlength="1000" placeholder="Сообщение всем…" autocomplete="off">
           <button class="btn primary" type="submit">Отправить</button>
         </form>
@@ -105,6 +107,8 @@
           <div class="dm-thread-head" id="dmThreadHead" hidden></div>
           <div class="chat-log" id="dmLog"></div>
           <form class="chat-input-row" id="dmForm">
+            <button class="btn" id="dmEmojiBtn" type="button" title="Эмодзи">😀</button>
+            <label class="btn" title="Прикрепить картинку" style="margin:0;">📎<input id="dmImageInput" type="file" accept="image/*" hidden></label>
             <input id="dmInput" type="text" maxlength="1000" placeholder="Сообщение…" autocomplete="off">
             <button class="btn primary" type="submit">Отправить</button>
           </form>
