@@ -5,6 +5,8 @@ import { state } from "./state.js";
 import { escapeHtml, fmtTime, showStatus } from "./utils.js";
 import { registerSectionLoader } from "./router.js";
 import { openUserCard } from "./userCard.js";
+import { toggleEmojiPanel, reactionBarHtml, bindReactionHandlers } from "./emoji.js";
+import { uploadChatImage } from "./chatMedia.js";
 
 export async function loadDmConversations() {
   const { data, error } = await sb.from("dm_messages")
@@ -19,9 +21,24 @@ export async function loadDmConversations() {
     byPartner[partner].push(m);
   });
   state.dmConversations = byPartner;
+  await loadDmReactions(data || []);
   renderDmNewSelect();
   renderDmList();
   if (state.activeDmUser) renderDmThread();
+}
+
+// См. комментарий у одноимённой функции в chat.js — тот же приём, только для
+// личных сообщений (kind='dm').
+async function loadDmReactions(messages) {
+  var ids = messages.map(function (m) { return m.id; });
+  state.dmReactions = {};
+  if (!ids.length) return;
+  try {
+    var res = await sb.from("message_reactions").select("message_id,user_id,emoji").eq("kind", "dm").in("message_id", ids);
+    (res.data || []).forEach(function (r) {
+      (state.dmReactions[r.message_id] = state.dmReactions[r.message_id] || []).push({ user_id: r.user_id, emoji: r.emoji });
+    });
+  } catch (e) { /* миграция social-upgrade-5.sql ещё не выполнена — просто без реакций */ }
 }
 
 function renderDmNewSelect() {
@@ -57,8 +74,9 @@ function renderDmList() {
     var last = msgs[msgs.length - 1];
     var unread = msgs.filter(function (m) { return m.recipient_id === state.myProfile.id && !m.read_at; }).length;
     var name = (state.profilesById[pid] || {}).display_name || "…";
+    var lastPreview = last ? (last.text ? escapeHtml(last.text) : (last.image_url ? "📷 Картинка" : "")) : "Новая переписка";
     return '<div class="dm-list-item' + (state.activeDmUser === pid ? " active" : "") + '" data-partner="' + pid + '">' +
-      '<div><div>' + escapeHtml(name) + '</div><div class="preview">' + (last ? escapeHtml(last.text) : "Новая переписка") + '</div></div>' +
+      '<div><div>' + escapeHtml(name) + '</div><div class="preview">' + lastPreview + '</div></div>' +
       (unread ? '<span class="unread">' + unread + '</span>' : '') +
     '</div>';
   }).join("");
@@ -82,10 +100,14 @@ export async function openDmThread(partnerId) {
 function dmMsgHtml(m) {
   var who = (state.profilesById[m.sender_id] || {}).display_name || "…";
   var mine = m.sender_id === state.myProfile.id;
-  return '<div class="chat-msg' + (mine ? " mine" : "") + '"><div class="who"><button type="button" class="btn linklike small" data-open-user="' + m.sender_id + '" style="padding:0;">' + escapeHtml(who) + '</button><span class="when">' + fmtTime(m.created_at) + '</span></div><div>' + escapeHtml(m.text) + '</div></div>';
+  return '<div class="chat-msg' + (mine ? " mine" : "") + '"><div class="who"><button type="button" class="btn linklike small" data-open-user="' + m.sender_id + '" style="padding:0;">' + escapeHtml(who) + '</button><span class="when">' + fmtTime(m.created_at) + '</span></div>' +
+    (m.text ? '<div>' + escapeHtml(m.text) + '</div>' : '') +
+    (m.image_url ? '<a href="' + escapeHtml(m.image_url) + '" target="_blank" rel="noopener"><img class="chat-img" src="' + escapeHtml(m.image_url) + '" alt="" loading="lazy"></a>' : '') +
+    reactionBarHtml(m.id, state.dmReactions[m.id], state.myProfile.id) +
+    '</div>';
 }
 
-function renderDmThread() {
+export function renderDmThread() {
   var thread = document.getElementById("dmThread");
   thread.classList.add("open");
   var head = document.getElementById("dmThreadHead");
@@ -101,6 +123,7 @@ function renderDmThread() {
   Array.prototype.forEach.call(log.querySelectorAll("[data-open-user]"), function (btn) {
     btn.addEventListener("click", function () { openUserCard(btn.getAttribute("data-open-user")); });
   });
+  bindReactionHandlers(log, { sb: sb, state: state, kind: "dm", reactionsMap: state.dmReactions, rerender: renderDmThread });
 }
 
 document.getElementById("dmForm").addEventListener("submit", async function (ev) {
@@ -112,6 +135,36 @@ document.getElementById("dmForm").addEventListener("submit", async function (ev)
   const { error } = await sb.from("dm_messages").insert({sender_id: state.myProfile.id, recipient_id: state.activeDmUser, text: text});
   if (error) { showStatus("Не удалось отправить: " + error.message, true); return; }
   input.value = "";
+});
+
+document.getElementById("dmEmojiBtn").addEventListener("click", function (ev) {
+  ev.stopPropagation();
+  var btn = this;
+  toggleEmojiPanel(btn, function (emoji) {
+    var input = document.getElementById("dmInput");
+    input.value += emoji;
+    input.focus();
+  });
+});
+
+document.getElementById("dmImageInput").addEventListener("change", async function (ev) {
+  var file = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  if (!file) return;
+  if (!state.activeDmUser) { showStatus("Сначала выберите собеседника", true); return; }
+  var input = document.getElementById("dmInput");
+  var text = input.value.trim();
+  showStatus("Загружаем картинку…");
+  try {
+    var imageUrl = await uploadChatImage(sb, state.myProfile.id, file);
+    const { error } = await sb.from("dm_messages").insert({
+      sender_id: state.myProfile.id, recipient_id: state.activeDmUser, text: text || null, image_url: imageUrl
+    });
+    if (error) throw error;
+    input.value = "";
+  } catch (e) {
+    showStatus("Не удалось прикрепить картинку: " + e.message, true);
+  }
 });
 
 registerSectionLoader("messages", loadDmConversations);

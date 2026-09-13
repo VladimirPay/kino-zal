@@ -27,7 +27,9 @@ export const state = {
   allProfilesList: [],
   catalogResults: [],
   chatMessages: [],
+  chatReactions: {}, // messageId -> [{user_id, emoji}]
   dmConversations: {}, // partnerId -> [messages]
+  dmReactions: {}, // messageId -> [{user_id, emoji}]
   activeDmUser: null,
   friendRequestsIn: [],
   friendRequestsOut: [],

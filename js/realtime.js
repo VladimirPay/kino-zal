@@ -6,7 +6,7 @@ import { sb } from "./supabaseClient.js";
 import { state } from "./state.js";
 import { loadMyList } from "./mylist.js";
 import { renderChat } from "./chat.js";
-import { loadDmConversations } from "./messages.js";
+import { loadDmConversations, renderDmThread } from "./messages.js";
 import { loadFriends, loadFriendsFeed } from "./friends.js";
 import { loadMatchesList } from "./matchgame.js";
 import { showStatus } from "./utils.js";
@@ -30,6 +30,25 @@ export function subscribeRealtime() {
       if (state.activeSection === "chat") renderChat();
     })
     .on("postgres_changes", {event: "*", schema: "public", table: "dm_messages"}, function () { if (state.activeSection === "messages") loadDmConversations(); })
+    // Реакции-эмодзи под сообщениями чата/ЛС — общая таблица message_reactions
+    // (kind различает, к чему относится message_id). Чтобы не гонять лишний
+    // раз запрос за всей историей чата ради одной реакции, просто правим
+    // локальный кэш реакций и перерисовываем, если нужная вкладка открыта.
+    .on("postgres_changes", {event: "INSERT", schema: "public", table: "message_reactions"}, function (payload) {
+      var r = payload.new;
+      var map = r.kind === "chat" ? state.chatReactions : state.dmReactions;
+      var list = map[r.message_id] = map[r.message_id] || [];
+      if (!list.some(function (x) { return x.user_id === r.user_id && x.emoji === r.emoji; })) list.push({ user_id: r.user_id, emoji: r.emoji });
+      if (r.kind === "chat" && state.activeSection === "chat") renderChat();
+      if (r.kind === "dm" && state.activeSection === "messages" && state.activeDmUser) renderDmThread();
+    })
+    .on("postgres_changes", {event: "DELETE", schema: "public", table: "message_reactions"}, function (payload) {
+      var r = payload.old;
+      var map = r.kind === "chat" ? state.chatReactions : state.dmReactions;
+      if (map[r.message_id]) map[r.message_id] = map[r.message_id].filter(function (x) { return !(x.user_id === r.user_id && x.emoji === r.emoji); });
+      if (r.kind === "chat" && state.activeSection === "chat") renderChat();
+      if (r.kind === "dm" && state.activeSection === "messages" && state.activeDmUser) renderDmThread();
+    })
     .on("postgres_changes", {event: "*", schema: "public", table: "friend_requests"}, function () { if (state.activeSection === "friends") loadFriends(); })
     .on("postgres_changes", {event: "*", schema: "public", table: "activity_feed"}, function () { if (state.activeSection === "friends") loadFriendsFeed(); })
     // Совпадение в игре «Матч» может случиться и когда вы не открывали эту
