@@ -140,6 +140,10 @@ async function renderTitleDetail(titleId, opts) {
     notInListNote +
     '<div class="rate-row"><span class="rate-stars">' + starsControl + '</span>' +
       '<span class="mono" style="color:var(--muted);font-size:0.85rem;">' + (avg ? avg.toFixed(1) + ' · ' + ratingCount + ' ' + pluralRu(ratingCount, ["оценка", "оценки", "оценок"]) : "пока нет оценок") + '</span></div>' +
+    '<div class="share-row">' +
+      '<button class="btn small" id="shareChatBtn" type="button">📤 Поделиться в общем чате</button>' +
+      '<span class="select-wrap"><select id="shareFriendSelect" title="Отправить другу"><option value="">Отправить другу…</option></select></span>' +
+    '</div>' +
     '<div class="comments"><h3 style="font-family:\'Bebas Neue\',sans-serif;font-size:1.15rem;letter-spacing:0.03em;margin:0 0 8px;">Комментарии</h3>' +
       commentsHtml +
       '<form id="commentForm" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
@@ -150,6 +154,50 @@ async function renderTitleDetail(titleId, opts) {
     (ut ? '<div class="dialog-actions"><button class="btn danger small" id="removeBtn" type="button">Убрать из моего списка</button></div>' : '');
 
   bindClose(inner);
+
+  // «Поделиться» — отправляет карточку тайтла как отдельное сообщение (без
+  // текста/картинки, см. social-upgrade-7.sql: у chat_messages/dm_messages
+  // теперь допустимо сообщение из одного только shared_title_id) в общий чат
+  // или конкретному другу. Список друзей подтягивается отдельным лёгким
+  // запросом (как в loadSocialRecs у catalog.js) — не полагаемся на то, что
+  // вкладка «Друзья» уже открывалась в этой сессии.
+  var shareChatBtn = inner.querySelector("#shareChatBtn");
+  if (shareChatBtn) {
+    shareChatBtn.addEventListener("click", async function () {
+      shareChatBtn.disabled = true;
+      const { error } = await sb.from("chat_messages").insert({ user_id: state.myProfile.id, shared_title_id: t.id });
+      shareChatBtn.disabled = false;
+      if (error) { showStatus("Не удалось поделиться: " + error.message, true); return; }
+      showStatus('«' + t.title + '» отправлено в общий чат');
+    });
+  }
+  var shareFriendSelect = inner.querySelector("#shareFriendSelect");
+  if (shareFriendSelect) {
+    (async function () {
+      try {
+        var frRes = await sb.from("friend_requests").select("from_user,to_user").eq("status", "accepted")
+          .or("from_user.eq." + state.myProfile.id + ",to_user.eq." + state.myProfile.id);
+        if (frRes.error) return;
+        var friendIds = (frRes.data || []).map(function (r) { return r.from_user === state.myProfile.id ? r.to_user : r.from_user; });
+        if (!friendIds.length) return;
+        shareFriendSelect.innerHTML = '<option value="">Отправить другу…</option>' + friendIds.map(function (id) {
+          var name = (state.profilesById[id] || {}).display_name || "…";
+          return '<option value="' + id + '">' + escapeHtml(name) + '</option>';
+        }).join("");
+      } catch (e) { /* не критично — просто останется один пункт-заглушка */ }
+    })();
+    shareFriendSelect.addEventListener("change", async function () {
+      var friendId = shareFriendSelect.value;
+      if (!friendId) return;
+      var friendName = shareFriendSelect.options[shareFriendSelect.selectedIndex].textContent;
+      shareFriendSelect.disabled = true;
+      const { error } = await sb.from("dm_messages").insert({ sender_id: state.myProfile.id, recipient_id: friendId, shared_title_id: t.id });
+      shareFriendSelect.value = "";
+      shareFriendSelect.disabled = false;
+      if (error) { showStatus("Не удалось отправить: " + error.message, true); return; }
+      showStatus('«' + t.title + '» отправлено ' + friendName);
+    });
+  }
 
   Array.prototype.forEach.call(inner.querySelectorAll("[data-status]"), function (btn) {
     btn.addEventListener("click", async function () {

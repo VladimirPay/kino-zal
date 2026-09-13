@@ -30,6 +30,7 @@ export const state = {
   profilesById: {},
   allProfilesList: [],
   catalogResults: [],
+  recommendations: [], // последний показанный блок «Может понравиться» (см. loadRecommendations в catalog.js) — источник для randomPickBtn в mylist.js
   catalogMode: null, // null (ещё не открывали) | "browse" (подборка по умолчанию) | "search"
   catalogTypeFilter: initialCatalogTypeFilter(), // "all" | "movie" | "series" — только отображение, не влияет на запросы к ApiGet.ru
   chatMessages: [],

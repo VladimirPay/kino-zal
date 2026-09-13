@@ -9,19 +9,24 @@
 // здесь стоял Kinopoisk.dev — перешли на ApiGet.ru, чтобы не упираться в
 // дневной лимит запросов (см. ниже).
 //
-// Принцип рекомендаций (два источника, показываются вместе, дубликаты
-// убираются):
+// Принцип рекомендаций (три источника, показываются вместе от самого личного
+// к самому общему, дубликаты убираются):
 //  1) «Социальный» сигнал (см. loadSocialRecs) — тайтлы, которые уже есть в
 //     общей таблице titles и которые ваши друзья оценили на 4-5★ или
 //     отметили «Просмотрено», а у вас их ещё нет. Ноль обращений к
 //     ApiGet.ru — только свои данные в Supabase, поэтому этот источник
 //     показывается даже если ApiGet.ru недоступен;
-//  2) Жанровая эвристика — берём тайтлы из «Моего списка», которые сам
+//  2) «Контентный» сигнал (см. loadSimilarRecs) — похожие тайтлы (ApiGet.ru
+//     get-similar) на несколько последних тайтлов, которые оценил на
+//     4-5★ или посмотрел лично сам пользователь. Точнее жанровой эвристики
+//     ниже, но платный (по запросу на «затравку»), поэтому кэшируется;
+//  3) Жанровая эвристика — берём тайтлы из «Моего списка», которые сам
 //     пользователь оценил на 4-5★ или отметил «Просмотрено», собираем их
 //     жанры, берём самый частый — и просим у ApiGet.ru случайную подборку
 //     этого жанра, из которой оставляем самые высокорейтинговые тайтлы,
-//     которых ещё нет в личном списке.
-// Если оба источника пусты — блок просто не показываем.
+//     которых ещё нет в личном списке. Самый широкий и наименее точный
+//     источник — добивает список, если первых двух не хватило.
+// Если все источники пусты — блок просто не показываем.
 //
 // ЭКОНОМИЯ ЗАПРОСОВ. У ApiGet.ru нет дневного лимита, но каждый успешный
 // запрос стоит небольшую, но не нулевую сумму (0.01₽) — поэтому все три
@@ -56,7 +61,7 @@ import { registerSectionLoader } from "./router.js";
 // для поиска (люди ищут разное и часто), для жанровой подборки (список
 // топ-жанров и так пересчитывается редко) и для карточки одного тайтла
 // (метаданные фильма практически не меняются).
-var KP_CACHE_TTL_MS = { "search": 6 * 60 * 60 * 1000, "get-random": 24 * 60 * 60 * 1000, "get-top500": 24 * 60 * 60 * 1000, "get-info": 7 * 24 * 60 * 60 * 1000 };
+var KP_CACHE_TTL_MS = { "search": 6 * 60 * 60 * 1000, "get-random": 24 * 60 * 60 * 1000, "get-top500": 24 * 60 * 60 * 1000, "get-info": 7 * 24 * 60 * 60 * 1000, "get-similar": 7 * 24 * 60 * 60 * 1000 };
 
 function kpCacheKey(method, params) {
   var sorted = {};
@@ -155,15 +160,23 @@ function isAnimeGenreList(genreNames) {
 function normalizeApiGetItem(raw) {
   var posterUrl = raw.poster_big || raw.poster_small || null;
   var genreNames = Array.isArray(raw.genre) ? raw.genre.filter(Boolean) : [];
+  // Основная форма ответа (search/get-top500/get-info/get-random) кладёт
+  // оценку во вложенное rating.kinopoisk.{value,count}. У get-similar (см.
+  // loadSimilarRecs) документация ApiGet.ru описывает более плоскую форму
+  // (rating_kp / rating_kp_votes) — на живом ответе это не проверялось,
+  // поэтому подстраховываемся и пробуем оба варианта, не ломая уже
+  // проверенный основной путь.
   var voteAverage = (raw.rating && raw.rating.kinopoisk && typeof raw.rating.kinopoisk.value === "number")
-    ? raw.rating.kinopoisk.value : null;
+    ? raw.rating.kinopoisk.value
+    : (typeof raw.rating_kp === "number" ? raw.rating_kp : null);
   if (voteAverage) voteAverage = Math.round(voteAverage * 10) / 10;
   // Сколько человек оценили на Кинопоиске — это и есть настоящая
   // «популярность» (в отличие от voteAverage, который легко натягивает
   // маленькая но очень активная аудитория). Используется для сортировки
   // «Популярные» и для подборки по умолчанию в loadCatalogDefault.
   var voteCount = (raw.rating && raw.rating.kinopoisk && typeof raw.rating.kinopoisk.count === "number")
-    ? raw.rating.kinopoisk.count : null;
+    ? raw.rating.kinopoisk.count
+    : (typeof raw.rating_kp_votes === "number" ? raw.rating_kp_votes : null);
   // ВАЖНО: у ApiGet.ru (в отличие от старого Kinopoisk.dev) поле type
   // принимает всего два значения — "movie" и "serial" (сериалы). Раньше тут
   // стояла проверка raw.type === "series" (с "s" на конце) — она никогда не
@@ -518,20 +531,19 @@ function catalogCardHtml(item, idx) {
 }
 
 // Вкладки «Все/Фильмы/Сериалы» — только фильтр отображения уже загруженной
-// подборки (см. isSeriesMediaType), без обращений к ApiGet.ru. Счётчики в
-// скобках считаются от текущего state.catalogResults, поэтому обновляются
-// сами при каждой перерисовке (новый поиск/подборка, смена сортировки).
+// подборки (см. isSeriesMediaType), без обращений к ApiGet.ru. Без счётчиков
+// в скобках — они то и дело "скакали" при подгрузке/фильтрации и путали
+// больше, чем помогали.
 function renderCatalogTypeTabs() {
   var el = document.getElementById("catalogTypeTabs");
   if (!el) return;
-  var seriesCount = state.catalogResults.filter(function (it) { return isSeriesMediaType(it.mediaType); }).length;
   var defs = [
-    { key: "all", label: "Все", count: state.catalogResults.length },
-    { key: "movie", label: "Фильмы", count: state.catalogResults.length - seriesCount },
-    { key: "series", label: "Сериалы", count: seriesCount }
+    { key: "all", label: "Все" },
+    { key: "movie", label: "Фильмы" },
+    { key: "series", label: "Сериалы" }
   ];
   el.innerHTML = defs.map(function (d) {
-    return '<button type="button" data-catalog-type="' + d.key + '" class="' + (state.catalogTypeFilter === d.key ? "active" : "") + '">' + d.label + ' (' + d.count + ')</button>';
+    return '<button type="button" data-catalog-type="' + d.key + '" class="' + (state.catalogTypeFilter === d.key ? "active" : "") + '">' + d.label + '</button>';
   }).join("");
   Array.prototype.forEach.call(el.querySelectorAll("button"), function (btn) {
     btn.addEventListener("click", function () {
@@ -638,7 +650,7 @@ async function enrichWithGenreIfMissing(item) {
   }
 }
 
-async function ensureTitleFromKp(item) {
+export async function ensureTitleFromKp(item) {
   const existing = await sb.from("titles").select("*").eq("kp_id", item.kpId).eq("media_type", item.mediaType).limit(1);
   if (existing.error) throw existing.error;
   if (existing.data && existing.data.length) return existing.data[0];
@@ -749,6 +761,36 @@ async function loadSocialRecs(haveIds, dismissed) {
   } catch (e) { return []; }
 }
 
+// «Контентный» сигнал — тайтлы, похожие на то, что сам пользователь недавно
+// оценил на 4-5★ или отметил «Просмотрено» (ApiGet.ru get-similar — сиквелы/
+// приквелы и близкие по духу фильмы для конкретного тайтла). Точнее и
+// «персональнее» жанровой эвристики ниже, но требует платных запросов — по
+// одному на каждую «затравку», поэтому берём не более SIMILAR_SEED_LIMIT
+// последних понравившихся и результат кэшируется наравне с остальным (см.
+// loadRecommendations). Один сид, который не удалось получить, не мешает
+// остальным — просто пропускается.
+var SIMILAR_SEED_LIMIT = 3;
+
+async function loadSimilarRecs(seeds) {
+  if (!seeds.length) return [];
+  var pool = [];
+  for (var i = 0; i < seeds.length; i++) {
+    try {
+      var res = await kpFetch("get-similar", { kinopoisk_id: seeds[i].kpId });
+      var raw = res.similar || res.results || res.items || [];
+      raw.map(normalizeApiGetItem).forEach(function (it) { pool.push(it); });
+    } catch (e) { /* один сид не получился — не критично, продолжаем с остальными */ }
+  }
+  var seen = {};
+  return pool.filter(function (it) {
+    if (!it.kpId) return false;
+    var k = it.mediaType + ":" + it.kpId;
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  });
+}
+
 function normalizeKpItemFromTitleRow(t) {
   return {
     kpId: t.kp_id, mediaType: t.media_type, title: t.title, year: parseYearValue(t.year),
@@ -775,11 +817,20 @@ export async function loadRecommendations() {
     return rawItems.filter(function (it) { return !haveIds[it.mediaType + ":" + it.kpId] && !dismissed[it.mediaType + ":" + it.kpId]; });
   }
 
-  function mergeAndRender(socialItems, genreItems) {
+  // Порядок слияния — от самого «личного» сигнала к самому общему: сначала
+  // то, что уже понравилось друзьям (loadSocialRecs), потом похожее на то,
+  // что понравилось лично вам (loadSimilarRecs), и только потом широкая
+  // жанровая эвристика как добивка, если первых двух источников не хватило
+  // до 10 карточек.
+  function mergeAndRender(socialItems, similarItems, genreItems) {
     var seen = {}, merged = [];
-    socialItems.forEach(function (it) { var k = it.mediaType + ":" + it.kpId; if (!seen[k]) { seen[k] = true; merged.push(it); } });
-    genreItems.forEach(function (it) { var k = it.mediaType + ":" + it.kpId; if (!seen[k]) { seen[k] = true; merged.push(it); } });
+    [socialItems, similarItems, genreItems].forEach(function (list) {
+      list.forEach(function (it) { var k = it.mediaType + ":" + it.kpId; if (!seen[k]) { seen[k] = true; merged.push(it); } });
+    });
     merged = merged.slice(0, 10);
+    // Сохраняем то, что реально показано — «Не знаю, что посмотреть»
+    // (см. randomPickBtn в mylist.js) выбирает случайное отсюда же.
+    state.recommendations = merged;
     if (!merged.length) { row.hidden = true; return; }
     row.hidden = false;
     renderRecsStrip(merged);
@@ -787,54 +838,64 @@ export async function loadRecommendations() {
 
   var socialItems = await loadSocialRecs(haveIds, dismissed);
 
+  // Затравки для get-similar — до SIMILAR_SEED_LIMIT недавно понравившихся
+  // тайтлов (новые вкусы важнее старых).
+  var likedSeeds = [];
   var likedGenres = {};
   state.myTitles.forEach(function (ut) {
     var t = ut.titles;
     var mine = (t.ratings || []).find(function (r) { return r.user_id === state.myProfile.id; });
     var liked = (mine && mine.value >= 4) || ut.status === 'watched';
-    if (liked && t.genre_names) {
-      t.genre_names.forEach(function (g) { likedGenres[g] = (likedGenres[g] || 0) + 1; });
-    }
+    if (!liked) return;
+    if (t.kp_id) likedSeeds.push({ kpId: t.kp_id, mediaType: t.media_type, at: (mine && mine.created_at) || ut.created_at });
+    if (t.genre_names) t.genre_names.forEach(function (g) { likedGenres[g] = (likedGenres[g] || 0) + 1; });
   });
+  likedSeeds.sort(function (a, b) { return new Date(b.at) - new Date(a.at); });
+  likedSeeds = likedSeeds.slice(0, SIMILAR_SEED_LIMIT);
   // ApiGet.ru принимает только один жанр за раз (что в get-random, что в
   // search) — берём самый частый среди понравившихся, второй по частоте в
   // этом запросе не участвует (он всё равно почти всегда перекрывается
-  // социальными рекомендациями).
+  // социальными и контентными рекомендациями).
   var topGenres = Object.keys(likedGenres).sort(function (a, b) { return likedGenres[b] - likedGenres[a]; }).slice(0, 2);
 
-  if (!topGenres.length) {
-    // Нет данных для жанровой эвристики (список пуст или ничего не оценено
-    // высоко) — но социальные рекомендации от друзей от этого не зависят.
-    mergeAndRender(socialItems, []);
+  if (!topGenres.length && !likedSeeds.length) {
+    // Нет данных ни для жанровой эвристики, ни для get-similar (список пуст
+    // или ничего не оценено высоко) — но социальные рекомендации от друзей
+    // от этого не зависят.
+    mergeAndRender(socialItems, [], []);
     return;
   }
-  var signature = topGenres.slice().sort().join(",");
+  var signature = topGenres.slice().sort().join(",") + "|" +
+    likedSeeds.map(function (s) { return s.mediaType + ":" + s.kpId; }).sort().join(",");
 
   var cache = readRecsCache();
   if (cache && cache.signature === signature && (Date.now() - cache.fetchedAt) < RECS_CACHE_TTL_MS) {
-    mergeAndRender(socialItems, finalize(cache.items));
+    mergeAndRender(socialItems, finalize(cache.similarItems || []), finalize(cache.genreItems || []));
     return;
   }
 
-  try {
-    // Используем search с фильтром по жанру, а не get-random — у ApiGet.ru
-    // сочетание get-random + genre сейчас ломается (см. подробный комментарий
-    // в loadCatalogDefault выше). limit доведён до максимума (100, дороже не
-    // становится — оплата за запрос, а не за элемент), чтобы было из чего
-    // выбирать: сортируем по voteCount (числу оценок), а не по voteAverage —
-    // иначе наверх лезет какая-нибудь малоизвестная вещь с рейтингом 9+ при
-    // паре десятков голосов вместо реально популярного тайтла в этом жанре.
-    var res = await kpFetch("search", { genre: topGenres[0], limit: 100 });
-    var rawItems = (res.results || [])
-      .map(normalizeApiGetItem)
-      .sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); });
-    writeRecsCache({ signature: signature, fetchedAt: Date.now(), items: rawItems });
-    mergeAndRender(socialItems, finalize(rawItems));
-  } catch (e) {
-    // ApiGet.ru недоступен — социальные рекомендации всё равно можно
-    // показать, они не зависят от внешнего API.
-    mergeAndRender(socialItems, []);
+  var similarItems = await loadSimilarRecs(likedSeeds);
+
+  var genreItems = [];
+  if (topGenres.length) {
+    try {
+      // Используем search с фильтром по жанру, а не get-random — у ApiGet.ru
+      // сочетание get-random + genre сейчас ломается (см. подробный
+      // комментарий в loadCatalogDefault выше). limit доведён до максимума
+      // (100, дороже не становится — оплата за запрос, а не за элемент),
+      // чтобы было из чего выбирать: сортируем по voteCount (числу оценок),
+      // а не по voteAverage — иначе наверх лезет какая-нибудь малоизвестная
+      // вещь с рейтингом 9+ при паре десятков голосов вместо реально
+      // популярного тайтла в этом жанре.
+      var res = await kpFetch("search", { genre: topGenres[0], limit: 100 });
+      genreItems = (res.results || [])
+        .map(normalizeApiGetItem)
+        .sort(function (a, b) { return (b.voteCount || 0) - (a.voteCount || 0); });
+    } catch (e) { /* жанровая эвристика недоступна — не страшно, есть другие источники */ }
   }
+
+  writeRecsCache({ signature: signature, fetchedAt: Date.now(), similarItems: similarItems, genreItems: genreItems });
+  mergeAndRender(socialItems, finalize(similarItems), finalize(genreItems));
 }
 
 function renderRecsStrip(items) {

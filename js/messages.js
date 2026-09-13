@@ -2,15 +2,18 @@
 
 import { sb } from "./supabaseClient.js";
 import { state } from "./state.js";
-import { escapeHtml, fmtTime, showStatus } from "./utils.js";
+import { escapeHtml, fmtTime, sharedTitleCardHtml, showStatus } from "./utils.js";
 import { registerSectionLoader } from "./router.js";
 import { openUserCard } from "./userCard.js";
+import { openTitleDetail } from "./titleDetail.js";
 import { toggleEmojiPanel, reactionBarHtml, bindReactionHandlers } from "./emoji.js";
 import { uploadChatImage } from "./chatMedia.js";
 
 export async function loadDmConversations() {
+  // titles!shared_title_id — см. комментарий в chat.js: карточка фильма,
+  // которым поделились через titleDetail.js, null для обычных сообщений.
   const { data, error } = await sb.from("dm_messages")
-    .select("*")
+    .select("*, titles!shared_title_id(id,title,year,poster_url,media_type,kp_rating)")
     .or("sender_id.eq." + state.myProfile.id + ",recipient_id.eq." + state.myProfile.id)
     .order("created_at", {ascending: true});
   if (error) { showStatus("Не удалось загрузить сообщения: " + error.message, true); return; }
@@ -74,7 +77,7 @@ function renderDmList() {
     var last = msgs[msgs.length - 1];
     var unread = msgs.filter(function (m) { return m.recipient_id === state.myProfile.id && !m.read_at; }).length;
     var name = (state.profilesById[pid] || {}).display_name || "…";
-    var lastPreview = last ? (last.text ? escapeHtml(last.text) : (last.image_url ? "📷 Картинка" : "")) : "Новая переписка";
+    var lastPreview = last ? (last.text ? escapeHtml(last.text) : (last.image_url ? "📷 Картинка" : (last.shared_title_id ? "🎬 " + escapeHtml(last.titles ? last.titles.title : "Фильм") : ""))) : "Новая переписка";
     return '<div class="dm-list-item' + (state.activeDmUser === pid ? " active" : "") + '" data-partner="' + pid + '">' +
       '<div><div>' + escapeHtml(name) + '</div><div class="preview">' + lastPreview + '</div></div>' +
       (unread ? '<span class="unread">' + unread + '</span>' : '') +
@@ -103,6 +106,7 @@ function dmMsgHtml(m) {
   return '<div class="chat-msg' + (mine ? " mine" : "") + '"><div class="who"><button type="button" class="btn linklike small" data-open-user="' + m.sender_id + '" style="padding:0;">' + escapeHtml(who) + '</button><span class="when">' + fmtTime(m.created_at) + '</span></div>' +
     (m.text ? '<div>' + escapeHtml(m.text) + '</div>' : '') +
     (m.image_url ? '<a href="' + escapeHtml(m.image_url) + '" target="_blank" rel="noopener"><img class="chat-img" src="' + escapeHtml(m.image_url) + '" alt="" loading="lazy"></a>' : '') +
+    (m.shared_title_id ? sharedTitleCardHtml(m.titles) : '') +
     reactionBarHtml(m.id, state.dmReactions[m.id], state.myProfile.id) +
     '</div>';
 }
@@ -122,6 +126,9 @@ export function renderDmThread() {
   // Клик по имени автора конкретного сообщения тоже открывает карточку профиля.
   Array.prototype.forEach.call(log.querySelectorAll("[data-open-user]"), function (btn) {
     btn.addEventListener("click", function () { openUserCard(btn.getAttribute("data-open-user")); });
+  });
+  Array.prototype.forEach.call(log.querySelectorAll("[data-open-title]"), function (el) {
+    el.addEventListener("click", function () { openTitleDetail(parseInt(el.getAttribute("data-open-title"), 10)); });
   });
   bindReactionHandlers(log, { sb: sb, state: state, kind: "dm", reactionsMap: state.dmReactions, rerender: renderDmThread });
 }

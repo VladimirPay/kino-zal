@@ -8,7 +8,7 @@ import { state } from "./state.js";
 import { STATUS_LABEL, TABS, TYPE_LABEL } from "./config.js";
 import { escapeHtml, pluralRu, posterHtml, ratingAvg, showStatus, starsHtml, writeSessionValue } from "./utils.js";
 import { registerSectionLoader } from "./router.js";
-import { loadRecommendations } from "./catalog.js";
+import { ensureTitleFromKp, loadRecommendations } from "./catalog.js";
 import { openTitleDetail, refreshOpenDetailIfAny } from "./titleDetail.js";
 
 export async function loadMyList() {
@@ -103,17 +103,41 @@ document.getElementById("searchInput").addEventListener("input", function (ev) {
   renderGrid();
 });
 
-// «Не знаю, что посмотреть» — случайный выбор из тех, что отмечены «Хочу
-// посмотреть» (смотреть то, что уже просмотрено, смысла нет). Ничего не
-// стоит по лимиту запросов — вся выборка уже лежит в state.myTitles.
-document.getElementById("randomPickBtn").addEventListener("click", function () {
-  var pool = state.myTitles.filter(function (ut) { return ut.status === "want"; });
-  if (!pool.length) {
-    showStatus("Сначала отметьте что-нибудь «Хочу посмотреть» — иначе не из чего выбирать.", true);
+// «Не знаю, что посмотреть» — случайный выбор из блока «Может понравиться»
+// (state.recommendations, см. loadRecommendations в catalog.js — тот же
+// список, что показан в рекомендациях, только выбор за вас). Рекомендации
+// могут ссылаться на тайтл, которого ещё нет в общей базе (например,
+// контентная/жанровая подборка из живого ApiGet.ru) — поэтому, как и в
+// самой карточке рекомендации, сначала ensureTitleFromKp. Если рекомендаций
+// пока нет (мало данных: нет друзей, ничего не оценено) — запасной путь, как
+// раньше: случайный выбор из «Хочу посмотреть».
+document.getElementById("randomPickBtn").addEventListener("click", async function () {
+  var btn = this;
+  var haveIds = {};
+  state.myTitles.forEach(function (ut) { if (ut.titles.kp_id) haveIds[ut.titles.media_type + ":" + ut.titles.kp_id] = true; });
+  var recPool = (state.recommendations || []).filter(function (it) { return !haveIds[it.mediaType + ":" + it.kpId]; });
+
+  if (recPool.length) {
+    var pick = recPool[Math.floor(Math.random() * recPool.length)];
+    btn.disabled = true;
+    try {
+      var row = await ensureTitleFromKp(pick);
+      openTitleDetail(row.id, { spin: true });
+    } catch (e) {
+      showStatus("Не удалось открыть карточку: " + e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
     return;
   }
-  var pick = pool[Math.floor(Math.random() * pool.length)];
-  openTitleDetail(pick.titles.id, { spin: true });
+
+  var pool = state.myTitles.filter(function (ut) { return ut.status === "want"; });
+  if (!pool.length) {
+    showStatus("Пока нет ни рекомендаций, ни отмеченного «Хочу посмотреть» — сначала добавьте что-нибудь в список или оцените уже просмотренное.", true);
+    return;
+  }
+  var pick2 = pool[Math.floor(Math.random() * pool.length)];
+  openTitleDetail(pick2.titles.id, { spin: true });
 });
 
 registerSectionLoader("mylist", loadMyList);

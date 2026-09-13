@@ -1,6 +1,8 @@
 // Наш Кинозал — мелкие утилиты общего назначения, без зависимостей от
 // состояния приложения и от Supabase. Используются почти всеми остальными модулями.
 
+import { TYPE_LABEL } from "./config.js";
+
 export function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
     return {"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"}[c];
@@ -31,6 +33,26 @@ export function starsHtml(avg, max) {
 export function posterHtml(url) {
   return url ? '<img class="poster" src="' + escapeHtml(url) + '" alt="" loading="lazy">'
               : '<div class="poster-placeholder">без постера</div>';
+}
+
+// Карточка тайтла, «прикреплённая» к сообщению в чате/ЛС (см. «Поделиться»
+// в titleDetail.js и social-upgrade-7.sql) — компактная, кликабельная,
+// открывает ту же общую карточку тайтла (openTitleDetail). Используется и в
+// chat.js, и в messages.js — общий вид для обоих мест. titleRow может быть
+// null (тайтл впоследствии удалили из каталога через Управление → Фильмы —
+// shared_title_id тогда обнуляется по внешнему ключу "on delete set null",
+// само сообщение при этом не пропадает).
+export function sharedTitleCardHtml(titleRow) {
+  if (!titleRow) return '<div class="shared-title-card removed">Эта карточка фильма больше не в каталоге.</div>';
+  return '<div class="shared-title-card" data-open-title="' + titleRow.id + '">' +
+    posterHtml(titleRow.poster_url) +
+    '<div class="shared-title-info">' +
+      '<div class="shared-title-badge">' + (TYPE_LABEL[titleRow.media_type] || titleRow.media_type) +
+        (titleRow.kp_rating ? ' · ★ ' + titleRow.kp_rating : '') + '</div>' +
+      '<div class="shared-title-name">' + escapeHtml(titleRow.title) + '</div>' +
+      '<div class="mono" style="color:var(--muted);font-size:0.78rem;">' + (titleRow.year || '—') + '</div>' +
+    '</div>' +
+  '</div>';
 }
 
 export function fmtTime(iso) {
