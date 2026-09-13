@@ -51,8 +51,12 @@ nav.tabs .n,nav.sections .n{font-family:'JetBrains Mono',monospace;font-size:0.7
 .card:hover{border-color:var(--accent);}
 .card.has-poster{padding-top:0;}
 .card .poster-wrap{margin:-14px -14px 4px -16px;}
-.card .poster-wrap .poster,.card .poster-wrap .poster-placeholder{border-radius:12px 12px 0 0;aspect-ratio:3/2;}
-.poster{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:8px;background:var(--surface-2);display:block;}
+.card .poster-wrap .poster,.card .poster-wrap .poster-placeholder{border-radius:12px 12px 0 0;}
+/* object-fit:contain (не cover) — постер виден целиком, без обрезки краёв;
+   аспект 2/3 соответствует обычным пропорциям постера, а свободное место по
+   бокам/сверху-снизу (если пропорции реальной картинки чуть отличаются)
+   просто заливается фоном поверхности, а не обрезает кадр. */
+.poster{width:100%;aspect-ratio:2/3;object-fit:contain;border-radius:8px;background:var(--surface-2);display:block;}
 .poster-placeholder{width:100%;aspect-ratio:2/3;border-radius:8px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.75rem;text-align:center;padding:6px;}
 .detail-poster{margin:-22px -22px 14px;max-height:220px;overflow:hidden;}
 .detail-poster .poster,.detail-poster .poster-placeholder{width:100%;height:220px;aspect-ratio:auto;border-radius:0;object-fit:cover;}
