@@ -26,6 +26,7 @@ export const state = {
   profilesById: {},
   allProfilesList: [],
   catalogResults: [],
+  catalogMode: null, // null (ещё не открывали) | "browse" (подборка по умолчанию) | "search"
   chatMessages: [],
   chatReactions: {}, // messageId -> [{user_id, emoji}]
   dmConversations: {}, // partnerId -> [messages]

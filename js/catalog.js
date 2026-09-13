@@ -50,6 +50,7 @@ import { KP_TYPES, TYPE_LABEL } from "./config.js";
 import { escapeHtml, pluralRu, posterHtml, showStatus } from "./utils.js";
 import { loadMyList } from "./mylist.js";
 import { openTitleDetail } from "./titleDetail.js";
+import { registerSectionLoader } from "./router.js";
 
 // Сколько времени считать кэшированный ответ ApiGet.ru ещё свежим — разное
 // для поиска (люди ищут разное и часто), для жанровой подборки (список
@@ -139,16 +140,17 @@ function normalizeApiGetItem(raw) {
 }
 
 // Поиск запускается кнопкой «Искать»/Enter, а не на каждое нажатие клавиши —
-// это самая большая экономия запросов (и денег). Очистка поля сразу очищает
-// результаты (без обращения к ApiGet.ru).
+// это самая большая экономия запросов (и денег). Очистка поля возвращает
+// случайную подборку по умолчанию (см. loadCatalogDefault ниже) — каталог
+// больше не остаётся пустым, пока не начнёшь искать.
 document.getElementById("catalogSearchForm").addEventListener("submit", function (ev) {
   ev.preventDefault();
   var q = document.getElementById("catalogSearch").value.trim();
-  if (!q) { state.catalogResults = []; renderCatalogGrid(); return; }
+  if (!q) { loadCatalogDefault(); return; }
   searchKp(q);
 });
 document.getElementById("catalogSearch").addEventListener("input", function (ev) {
-  if (!ev.target.value.trim()) { state.catalogResults = []; renderCatalogGrid(); }
+  if (!ev.target.value.trim()) loadCatalogDefault();
 });
 
 // Одинаковый повторный поиск в рамках одной вкладки (например, случайно
@@ -157,11 +159,12 @@ document.getElementById("catalogSearch").addEventListener("input", function (ev)
 var catalogSearchCache = {};
 
 async function searchKp(query) {
+  state.catalogMode = "search";
   var cacheKey = query.trim().toLowerCase();
   document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Ищем…</p>';
   if (catalogSearchCache[cacheKey]) {
     state.catalogResults = catalogSearchCache[cacheKey];
-    renderCatalogGrid();
+    applyCatalogSortAndRender();
     return;
   }
   try {
@@ -172,8 +175,82 @@ async function searchKp(query) {
     state.catalogResults = [];
     showStatus("Не удалось обратиться к ApiGet.ru: " + e.message, true);
   }
+  applyCatalogSortAndRender();
+}
+
+// ---------- Подборка по умолчанию (каталог больше не пустует) ----------
+// Раньше вкладка «Каталог» показывала только приглашение «начните искать» —
+// теперь при открытии сразу подгружается случайная подборка (get-random без
+// фильтров), чтобы было что посмотреть/пролистать, не печатая запрос. Кэш в
+// sessionStorage на несколько часов — повторное открытие вкладки в течение
+// сессии ничего не запрашивает у ApiGet.ru повторно (та же экономия, что и у
+// рекомендаций и поиска).
+var CATALOG_DEFAULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+function readCatalogDefaultCache() {
+  try { return JSON.parse(sessionStorage.getItem("kz_catalog_default_cache") || "null"); } catch (e) { return null; }
+}
+function writeCatalogDefaultCache(items) {
+  try { sessionStorage.setItem("kz_catalog_default_cache", JSON.stringify({ fetchedAt: Date.now(), items: items })); } catch (e) {}
+}
+
+async function loadCatalogDefault() {
+  state.catalogMode = "browse";
+  document.getElementById("catalogSearch").value = "";
+  var cache = readCatalogDefaultCache();
+  if (cache && (Date.now() - cache.fetchedAt) < CATALOG_DEFAULT_CACHE_TTL_MS) {
+    state.catalogResults = cache.items;
+    applyCatalogSortAndRender();
+    return;
+  }
+  document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Загружаем подборку…</p>';
+  try {
+    var res = await kpFetch("get-random", { count: 30 });
+    var items = (res.results || []).map(normalizeApiGetItem);
+    state.catalogResults = items;
+    writeCatalogDefaultCache(items);
+  } catch (e) {
+    state.catalogResults = [];
+    showStatus("Не удалось загрузить подборку из ApiGet.ru: " + e.message, true);
+  }
+  applyCatalogSortAndRender();
+}
+
+registerSectionLoader("catalog", function () {
+  // Не сбрасываем молча уже показанный активный поиск (например, если
+  // человек что-то искал, ушёл на другую вкладку и вернулся обратно) —
+  // подборка по умолчанию грузится только если каталог сейчас пуст и это не
+  // осознанный поиск с нулевым результатом.
+  if (!state.catalogResults.length && state.catalogMode !== "search") loadCatalogDefault();
+});
+
+// ---------- Сортировка (полностью на клиенте, без обращений к ApiGet.ru) ----------
+function sortCatalogResults() {
+  var sortKey = document.getElementById("catalogSort").value;
+  var arr = state.catalogResults;
+  if (sortKey === "rating") {
+    arr.sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
+  } else if (sortKey === "year") {
+    arr.sort(function (a, b) { return (b.year || 0) - (a.year || 0); });
+  } else if (sortKey === "alpha") {
+    arr.sort(function (a, b) { return a.title.localeCompare(b.title, "ru"); });
+  } else if (sortKey === "shuffle") {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+  }
+}
+function applyCatalogSortAndRender() {
+  sortCatalogResults();
   renderCatalogGrid();
 }
+document.getElementById("catalogSort").addEventListener("change", function () {
+  document.getElementById("catalogShuffleBtn").hidden = (this.value !== "shuffle");
+  applyCatalogSortAndRender();
+});
+document.getElementById("catalogShuffleBtn").addEventListener("click", function () {
+  applyCatalogSortAndRender();
+});
 
 function catalogCardHtml(item, idx) {
   return '' +
@@ -195,7 +272,9 @@ function renderCatalogGrid() {
     ? state.catalogResults.length + " " + pluralRu(state.catalogResults.length, ["результат", "результата", "результатов"])
     : "";
   if (!state.catalogResults.length) {
-    grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Начните вводить название в поиске выше.</p>';
+    grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">' +
+      (state.catalogMode === "search" ? "Ничего не нашлось — попробуйте другой запрос." : "Не удалось загрузить подборку — попробуйте открыть вкладку заново чуть позже.") +
+      '</p>';
     return;
   }
   grid.innerHTML = state.catalogResults.map(catalogCardHtml).join("");
