@@ -13,6 +13,10 @@ function initialTab() {
   var v = readSessionValue("kz_tab", "all");
   return TABS.some(function (t) { return t.key === v; }) ? v : "all";
 }
+function initialCatalogTypeFilter() {
+  var v = readSessionValue("kz_catalog_type", "all");
+  return ["all", "movie", "series"].indexOf(v) !== -1 ? v : "all";
+}
 
 export const state = {
   myTitles: [],
@@ -27,6 +31,7 @@ export const state = {
   allProfilesList: [],
   catalogResults: [],
   catalogMode: null, // null (ещё не открывали) | "browse" (подборка по умолчанию) | "search"
+  catalogTypeFilter: initialCatalogTypeFilter(), // "all" | "movie" | "series" — только отображение, не влияет на запросы к ApiGet.ru
   chatMessages: [],
   chatReactions: {}, // messageId -> [{user_id, emoji}]
   dmConversations: {}, // partnerId -> [messages]

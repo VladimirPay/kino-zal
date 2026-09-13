@@ -47,7 +47,7 @@
 import { sb } from "./supabaseClient.js";
 import { state } from "./state.js";
 import { KP_TYPES, TYPE_LABEL } from "./config.js";
-import { escapeHtml, pluralRu, posterHtml, showStatus } from "./utils.js";
+import { escapeHtml, pluralRu, posterHtml, showStatus, writeSessionValue } from "./utils.js";
 import { loadMyList } from "./mylist.js";
 import { openTitleDetail } from "./titleDetail.js";
 import { registerSectionLoader } from "./router.js";
@@ -119,6 +119,29 @@ async function logKpUsage(method, ok, status) {
 // пустым — он подтягивается отдельным запросом get-info в момент реального
 // добавления в список (см. ensureTitleFromKp), и с этого момента живёт в
 // таблице titles уже навсегда, не требуя повторных запросов.
+// У сериалов ApiGet.ru (вслед за Кинопоиском) год нередко отдаёт не одним
+// числом, а диапазоном строкой ("2019-2021", "2019-…" для ещё идущих
+// сериалов) — если положить такую строку в year как есть, сортировка «Сначала
+// новые» (арифметическое вычитание b.year - a.year) на подобных значениях
+// превращается в NaN и перестаёт что-либо упорядочивать: смешанные в одной
+// подборке фильмы (чистое число) и сериалы (диапазон) выглядят так, будто
+// сортировка по году вообще не работает. Поэтому всегда вытаскиваем из
+// значения года первое 4-значное число, а не полагаемся на то, что оно уже
+// число.
+function parseYearValue(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (typeof raw === "number") return isFinite(raw) ? raw : null;
+  var m = String(raw).match(/\d{4}/);
+  return m ? parseInt(m[0], 10) : null;
+}
+
+// Разбивка «Фильмы»/«Сериалы» в каталоге — грубая эвристика по нашему полю
+// mediaType (см. normalizeApiGetItem ниже): не отдельный запрос к ApiGet.ru,
+// просто переключатель отображения уже загруженной подборки.
+function isSeriesMediaType(mediaType) {
+  return mediaType === "tv-series" || mediaType === "animated-series" || mediaType === "tv-show";
+}
+
 function normalizeApiGetItem(raw) {
   var posterUrl = raw.poster_big || raw.poster_small || null;
   var genreNames = Array.isArray(raw.genre) ? raw.genre.filter(Boolean) : [];
@@ -130,7 +153,7 @@ function normalizeApiGetItem(raw) {
     kpId: raw.kinopoisk_id,
     mediaType: mediaType,
     title: raw.title_ru || raw.title_en || "Без названия",
-    year: raw.year || null,
+    year: parseYearValue(raw.year),
     genreNames: genreNames,
     genre: genreNames.slice(0, 3).join(", ") || null,
     overview: raw.description || raw.tagline || null,
@@ -180,12 +203,37 @@ async function searchKp(query) {
 
 // ---------- Подборка по умолчанию (каталог больше не пустует) ----------
 // Раньше вкладка «Каталог» показывала только приглашение «начните искать» —
-// теперь при открытии сразу подгружается случайная подборка (get-random без
-// фильтров), чтобы было что посмотреть/пролистать, не печатая запрос. Кэш в
-// sessionStorage на несколько часов — повторное открытие вкладки в течение
-// сессии ничего не запрашивает у ApiGet.ru повторно (та же экономия, что и у
-// рекомендаций и поиска).
+// теперь при открытии сразу подгружается подборка, чтобы было что
+// посмотреть/пролистать, не печатая запрос.
+//
+// ПОЧЕМУ НЕ ПРОСТО get-random БЕЗ ФИЛЬТРОВ. Первая версия делала один запрос
+// get-random без фильтров — а без фильтра он тянет случайные тайтлы из ВСЕЙ
+// базы Кинопоиска (сотни тысяч штук), включая крайне нишевые и
+// малорейтинговые — отсюда и жалоба «выпадают какие-то не пойми какие
+// фильмы». Кроме того, у ApiGet.ru жёсткий лимит count 1–20 за один запрос
+// (раньше здесь стояло 30 — с превышением документированного максимума
+// нельзя быть уверенным, что сервис не обрежет или не отклонит запрос).
+//
+// У ApiGet.ru нет отдельного метода «популярное»/«тренды» (только
+// list/search/get-random/get-updates — без сортировки по рейтингу или
+// количеству голосов на стороне сервера). Поэтому подборку «на что все
+// сейчас смотрят» имитируем сами: делаем НЕСКОЛЬКО запросов get-random по
+// самым массовым жанрам (по одному на жанр, в пределах лимита count=20
+// каждый), объединяем результаты и оставляем только тайтлы с реальным и
+// достаточно высоким рейтингом Кинопоиска — это и есть прокси «популярности»
+// при отсутствии готового рейтинга просмотров/поиска у самого ApiGet.ru.
+//
+// ЭКОНОМИЯ. Каждая жанровая комбинация кэшируется в общей таблице kp_cache
+// отдельно (см. kpCacheKey) на 24 часа (KP_CACHE_TTL_MS["get-random"]) и это
+// кэш ОБЩИЙ для всех пользователей сайта — то есть по факту это всего
+// ~5 успешных запросов (5 копеек) на весь сайт раз в сутки, а не при каждом
+// открытии вкладки каждым человеком. sessionStorage-кэш ниже — просто чтобы
+// не дёргать даже Supabase-кэш при каждом повторном открытии вкладки в
+// рамках одной сессии браузера.
 var CATALOG_DEFAULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+var CATALOG_POPULAR_GENRES = ["драма", "боевик", "комедия", "фантастика", "триллер", "мультфильм"];
+var CATALOG_POPULAR_MIN_RATING = 6.5;
+
 function readCatalogDefaultCache() {
   try { return JSON.parse(sessionStorage.getItem("kz_catalog_default_cache") || "null"); } catch (e) { return null; }
 }
@@ -204,8 +252,37 @@ async function loadCatalogDefault() {
   }
   document.getElementById("catalogGrid").innerHTML = '<p class="empty-note" style="grid-column:1/-1;">Загружаем подборку…</p>';
   try {
-    var res = await kpFetch("get-random", { count: 30 });
-    var items = (res.results || []).map(normalizeApiGetItem);
+    // Каждый жанр запрашивается отдельно — если один запрос не удался
+    // (например, именно эта жанровая связка ни разу не кэширована и
+    // ApiGet.ru прямо сейчас недоступен), остальные жанры всё равно
+    // подгрузятся, просто подборка выйдет чуть меньше.
+    var responses = await Promise.all(CATALOG_POPULAR_GENRES.map(function (g) {
+      return kpFetch("get-random", { genre: g, count: 20 }).catch(function () { return null; });
+    }));
+    var seen = {};
+    var pool = [];
+    responses.forEach(function (res) {
+      if (!res || !res.results) return;
+      res.results.map(normalizeApiGetItem).forEach(function (item) {
+        var key = item.mediaType + ":" + item.kpId;
+        if (!seen[key]) { seen[key] = true; pool.push(item); }
+      });
+    });
+    if (!pool.length) {
+      state.catalogResults = [];
+      showStatus("Не удалось загрузить подборку из ApiGet.ru — попробуйте открыть вкладку заново чуть позже.", true);
+      applyCatalogSortAndRender();
+      return;
+    }
+    // Оставляем только достаточно высокорейтинговые тайтлы — это и есть
+    // «популярное» при отсутствии отдельного метода у ApiGet.ru. Если
+    // фильтр слишком жёсткий (мало что кэшировано с высоким рейтингом прямо
+    // сейчас) — постепенно смягчаем его, лишь бы каталог не остался пустым.
+    var popular = pool.filter(function (it) { return it.voteAverage != null && it.voteAverage >= CATALOG_POPULAR_MIN_RATING; });
+    if (popular.length < 10) popular = pool.filter(function (it) { return it.voteAverage != null; });
+    if (popular.length < 5) popular = pool;
+    popular.sort(function (a, b) { return (b.voteAverage || 0) - (a.voteAverage || 0); });
+    var items = popular.slice(0, 40);
     state.catalogResults = items;
     writeCatalogDefaultCache(items);
   } catch (e) {
@@ -266,10 +343,50 @@ function catalogCardHtml(item, idx) {
     '</article>';
 }
 
+// Вкладки «Все/Фильмы/Сериалы» — только фильтр отображения уже загруженной
+// подборки (см. isSeriesMediaType), без обращений к ApiGet.ru. Счётчики в
+// скобках считаются от текущего state.catalogResults, поэтому обновляются
+// сами при каждой перерисовке (новый поиск/подборка, смена сортировки).
+function renderCatalogTypeTabs() {
+  var el = document.getElementById("catalogTypeTabs");
+  if (!el) return;
+  var seriesCount = state.catalogResults.filter(function (it) { return isSeriesMediaType(it.mediaType); }).length;
+  var defs = [
+    { key: "all", label: "Все", count: state.catalogResults.length },
+    { key: "movie", label: "Фильмы", count: state.catalogResults.length - seriesCount },
+    { key: "series", label: "Сериалы", count: seriesCount }
+  ];
+  el.innerHTML = defs.map(function (d) {
+    return '<button type="button" data-catalog-type="' + d.key + '" class="' + (state.catalogTypeFilter === d.key ? "active" : "") + '">' + d.label + ' (' + d.count + ')</button>';
+  }).join("");
+  Array.prototype.forEach.call(el.querySelectorAll("button"), function (btn) {
+    btn.addEventListener("click", function () {
+      state.catalogTypeFilter = btn.getAttribute("data-catalog-type");
+      writeSessionValue("kz_catalog_type", state.catalogTypeFilter);
+      renderCatalogGrid();
+    });
+  });
+}
+
+function catalogTypeMatches(item) {
+  if (state.catalogTypeFilter === "movie") return !isSeriesMediaType(item.mediaType);
+  if (state.catalogTypeFilter === "series") return isSeriesMediaType(item.mediaType);
+  return true;
+}
+
 function renderCatalogGrid() {
   var grid = document.getElementById("catalogGrid");
-  document.getElementById("catalogCount").textContent = state.catalogResults.length
-    ? state.catalogResults.length + " " + pluralRu(state.catalogResults.length, ["результат", "результата", "результатов"])
+  renderCatalogTypeTabs();
+  // Индекс каждой карточки (data-idx) должен указывать на позицию тайтла в
+  // ПОЛНОМ state.catalogResults (а не в отфильтрованном по типу списке) —
+  // иначе клики "Добавить"/открыть карточку после включения фильтра
+  // "Фильмы"/"Сериалы" попадут не в тот тайтл.
+  var visible = [];
+  state.catalogResults.forEach(function (item, idx) {
+    if (catalogTypeMatches(item)) visible.push({ item: item, idx: idx });
+  });
+  document.getElementById("catalogCount").textContent = visible.length
+    ? visible.length + " " + pluralRu(visible.length, ["результат", "результата", "результатов"])
     : "";
   if (!state.catalogResults.length) {
     grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">' +
@@ -277,7 +394,11 @@ function renderCatalogGrid() {
       '</p>';
     return;
   }
-  grid.innerHTML = state.catalogResults.map(catalogCardHtml).join("");
+  if (!visible.length) {
+    grid.innerHTML = '<p class="empty-note" style="grid-column:1/-1;">В текущей подборке нет тайтлов такого типа — попробуйте другой фильтр «Все/Фильмы/Сериалы».</p>';
+    return;
+  }
+  grid.innerHTML = visible.map(function (pair) { return catalogCardHtml(pair.item, pair.idx); }).join("");
   // Клик по карточке целиком открывает подробную карточку тайтла (как в
   // «Моём списке»); клик по самой кнопке — быстрое добавление без открытия
   // диалога, поэтому у кнопки отдельный обработчик со stopPropagation.
@@ -456,7 +577,7 @@ async function loadSocialRecs(haveIds, dismissed) {
 
 function normalizeKpItemFromTitleRow(t) {
   return {
-    kpId: t.kp_id, mediaType: t.media_type, title: t.title, year: t.year,
+    kpId: t.kp_id, mediaType: t.media_type, title: t.title, year: parseYearValue(t.year),
     genreNames: t.genre_names || [], genre: t.genre, overview: t.overview,
     posterUrl: t.poster_url, voteAverage: t.kp_rating
   };
