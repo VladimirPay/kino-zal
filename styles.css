@@ -225,3 +225,36 @@ dialog::backdrop{background:rgba(20,16,12,0.55);}
 @keyframes kzDialogIn{ from{ opacity:0; transform: translateY(14px) scale(.97); } to{ opacity:1; transform: translateY(0) scale(1); } }
 @keyframes kzBackdropIn{ from{ opacity:0; } to{ opacity:1; } }
 @keyframes kzCardIn{ from{ opacity:0; transform: translateY(8px); } to{ opacity:1; transform: translateY(0); } }
+
+/* Социальная рекомендация — маленькая метка "понравилось другу" на карточке */
+.rec-social{font-size:0.72rem;color:var(--accent-2);font-weight:600;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Итоги месяца/года (профиль) */
+.recap-tabs{display:flex;gap:6px;margin:8px 0;}
+.recap-tabs button.active{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
+#recapBox p{font-size:0.9rem;}
+
+/* Матч — свайп-колода и список совпадений */
+.match-row{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--border);cursor:pointer;}
+.match-row:last-child{border-bottom:none;}
+.match-row .poster,.match-row .poster-placeholder{width:52px;aspect-ratio:2/3;border-radius:6px;flex:none;}
+.swipe-deck{display:flex;justify-content:center;margin:16px 0;min-height:340px;}
+.swipe-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 14px 30px -18px var(--shadow);max-width:320px;width:100%;overflow:hidden;}
+.swipe-card .poster-wrap{margin:0;}
+.swipe-card .poster,.swipe-card .poster-placeholder{aspect-ratio:2/3;border-radius:14px 14px 0 0;}
+.swipe-card-info{padding:12px 14px 14px;}
+.swipe-card-info h3{font-family:'Source Serif 4',serif;font-size:1.1rem;margin:0 0 4px;}
+.swipe-actions{display:flex;justify-content:center;gap:16px;}
+.swipe-actions .btn{font-size:1.4rem;line-height:1;padding:12px 22px;border-radius:50px;}
+
+/* Ручное открытие карточки случайным выбором — небольшая праздничная анимация */
+dialog.roulette .dialog-inner{ animation: kzRoulettePop .5s cubic-bezier(.2,1.4,.4,1) both; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .swipe-card.swiped-like{ animation: kzSwipeLike .26s ease both; }
+  .swipe-card.swiped-skip{ animation: kzSwipeSkip .26s ease both; }
+}
+
+@keyframes kzRoulettePop{ 0%{ opacity:0; transform: scale(.85) rotate(-2deg); } 60%{ opacity:1; transform: scale(1.03) rotate(1deg); } 100%{ transform: scale(1) rotate(0); } }
+@keyframes kzSwipeLike{ to{ opacity:0; transform: translateX(60px) rotate(6deg); } }
+@keyframes kzSwipeSkip{ to{ opacity:0; transform: translateX(-60px) rotate(-6deg); } }

@@ -60,6 +60,7 @@
       <div class="toolbar">
         <input id="searchInput" type="text" placeholder="Поиск по своему списку…">
         <span class="count" id="resultCount"></span>
+        <button class="btn" id="randomPickBtn" type="button">🎲 Не знаю, что посмотреть</button>
       </div>
       <main id="grid" class="grid"><p class="empty-note" style="grid-column:1/-1;">Загрузка…</p></main>
       <p class="foot-note">Статус «хочу/смотрю/просмотрено» видите только вы. Чтобы добавить фильм — откройте вкладку «Каталог».</p>
@@ -74,9 +75,9 @@
         </form>
         <span class="count" id="catalogCount"></span>
       </div>
-      <p class="catalog-hint">Данные предоставлены Kinopoisk.dev. Введите название, нажмите «Искать», найдите тайтл и нажмите «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
+      <p class="catalog-hint">Данные Кинопоиска предоставлены сервисом ApiGet.ru. Введите название, нажмите «Искать», найдите тайтл и нажмите «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
       <main id="catalogGrid" class="grid"></main>
-      <p class="api-note">Бесплатный тариф Kinopoisk.dev ограничен 200 запросами в день на весь сайт — этого обычно с запасом хватает для компании друзей.</p>
+      <p class="api-note">ApiGet.ru работает по предоплаченному балансу (без дневного лимита запросов) — каждый успешный запрос стоит 0.01₽, сайт старается лишний раз не запрашивать одно и то же (см. «Управление» → «Лимиты API»).</p>
     </section>
 
     <!-- ===== Чат ===== -->
@@ -133,6 +134,20 @@
       <div class="section-h">Лента друзей</div>
       <p class="catalog-hint">Показывает активность только тех друзей, кто сам включил «делиться активностью» в профиле.</p>
       <div id="friendsFeed"><p class="empty-note">Пока тихо.</p></div>
+    </section>
+
+    <!-- ===== Матч ===== -->
+    <section id="section-match" class="section" hidden>
+      <div class="section-h">Совпадения</div>
+      <div id="matchesList"><p class="empty-note">Пока совпадений нет — свайпайте карточки ниже вместе с друзьями.</p></div>
+
+      <div class="section-h">Свайпы</div>
+      <p class="catalog-hint">Отмечайте «нравится» или «не то» — если тот же фильм понравится и вашему другу, вы оба сразу узнаете о совпадении.</p>
+      <div id="swipeDeck" class="swipe-deck"></div>
+      <div class="swipe-actions">
+        <button class="btn danger" id="swipeSkipBtn" type="button">✕ Не то</button>
+        <button class="btn primary" id="swipeLikeBtn" type="button">❤ Нравится</button>
+      </div>
     </section>
 
     <!-- ===== Управление (только для админов) ===== -->
@@ -197,6 +212,13 @@
 
         <div class="section-h">Достижения</div>
         <div class="achv-list" id="achvList"></div>
+
+        <div class="section-h">Итоги</div>
+        <div class="recap-tabs">
+          <button type="button" class="btn small active" data-recap="month">Месяц</button>
+          <button type="button" class="btn small" data-recap="year">Год</button>
+        </div>
+        <div id="recapBox"></div>
 
         <div class="dialog-actions" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
           <button class="btn danger small" id="signOutBtn" type="button">Выйти из аккаунта</button>
