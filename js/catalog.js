@@ -237,22 +237,29 @@ function renderCatalogGrid() {
 // normalizeApiGetItem). Тогда один раз досылаем get-info за полной
 // карточкой, чтобы жанр сохранился в общей таблице titles навсегда и не
 // пришлось запрашивать его снова — ни вам, ни другим участникам сайта,
-// которые впоследствии откроют этот же тайтл.
+// которые впоследствии откроют этот же тайтл. Раз уж всё равно запрашиваем
+// полную карточку — заодно забираем и ссылку на трейлер (см. ensureTrailerUrl
+// ниже), чтобы при первом же открытии карточки тайтла не пришлось делать для
+// неё ещё один отдельный (и платный) запрос get-info.
 async function enrichWithGenreIfMissing(item) {
   if (item.genreNames && item.genreNames.length) return item;
   try {
     var full = await kpFetch("get-info", { kinopoisk_id: item.kpId });
     var enriched = normalizeApiGetItem(full);
+    var trailerUrl = (full.trailers && full.trailers[0] && full.trailers[0].url) || null;
     return Object.assign({}, item, {
       genreNames: enriched.genreNames.length ? enriched.genreNames : item.genreNames,
       genre: enriched.genre || item.genre,
       overview: item.overview || enriched.overview,
-      posterUrl: item.posterUrl || enriched.posterUrl
+      posterUrl: item.posterUrl || enriched.posterUrl,
+      trailerUrl: trailerUrl
     });
   } catch (e) {
     // Не удалось получить полную карточку (например, обращение к ApiGet.ru
-    // прямо сейчас не удалось) — не страшно, добавляем без жанра, он просто
-    // не будет учитываться в рекомендациях по жанрам для этого тайтла.
+    // прямо сейчас не удалось) — не страшно, добавляем без жанра и трейлера,
+    // жанр просто не будет учитываться в рекомендациях, а трейлер (как и для
+    // любого тайтла, добавленного раньше этой функции) подтянется позже, при
+    // первом открытии карточки — см. ensureTrailerUrl.
     return item;
   }
 }
@@ -265,7 +272,8 @@ async function ensureTitleFromKp(item) {
   const payload = {
     kp_id: full.kpId, media_type: full.mediaType, title: full.title, year: full.year,
     genre: full.genre, genre_names: full.genreNames || [], overview: full.overview,
-    poster_url: full.posterUrl, kp_rating: full.voteAverage, added_by: state.myProfile.id
+    poster_url: full.posterUrl, kp_rating: full.voteAverage, trailer_url: full.trailerUrl || null,
+    added_by: state.myProfile.id
   };
   const ins = await sb.from("titles").insert(payload).select().limit(1);
   if (ins.error) {
@@ -274,6 +282,29 @@ async function ensureTitleFromKp(item) {
     throw ins.error;
   }
   return ins.data[0];
+}
+
+// Ссылка на трейлер — как и жанр (см. enrichWithGenreIfMissing), ApiGet.ru
+// отдаёт её только в подробной карточке get-info, а не в облегчённых
+// списках поиска/подборки. Поэтому запрашиваем её один раз, лениво — только
+// когда кто-то реально открывает карточку тайтла, у которого ссылки ещё нет
+// (см. titleDetail.js) — и сохраняем в titles.trailer_url навсегда через
+// узкую RPC-функцию set_title_trailer (см. social-upgrade-4.sql): она умеет
+// заполнить только это одно поле, даже если сам тайтл в своё время добавил
+// не текущий пользователь.
+export async function ensureTrailerUrl(titleRow) {
+  if (titleRow.trailer_url || !titleRow.kp_id) return titleRow.trailer_url || null;
+  try {
+    var full = await kpFetch("get-info", { kinopoisk_id: titleRow.kp_id });
+    var trailerUrl = (full.trailers && full.trailers[0] && full.trailers[0].url) || null;
+    if (trailerUrl) {
+      var rpcRes = await sb.rpc("set_title_trailer", { p_title_id: titleRow.id, p_trailer_url: trailerUrl });
+      if (rpcRes.error) console.warn("set_title_trailer:", rpcRes.error.message);
+    }
+    return trailerUrl;
+  } catch (e) {
+    return null; // ApiGet.ru недоступен прямо сейчас — не страшно, просто нет ссылки на трейлер пока что.
+  }
 }
 
 async function addFromKp(item) {

@@ -3,8 +3,8 @@
 
 export const SUPABASE_URL = "https://fbewqeffdgrlyahetykx.supabase.co";
 export const SUPABASE_ANON_KEY = "sb_publishable_o-gkUyR979lyzb9w9W7i7g_463PhMki";
-// Ключ Kinopoisk.dev сюда вставлять не нужно — он хранится в Supabase как секрет
-// KP_API_KEY у Edge Function "kinopoisk-proxy". Сайт обращается к Kinopoisk.dev
+// Ключ ApiGet.ru сюда вставлять не нужно — он хранится в Supabase как секрет
+// APIGET_KEY у Edge Function "kinopoisk-proxy". Сайт обращается к ApiGet.ru
 // через эту функцию, а не напрямую из браузера. См. kinopoisk-proxy.ts.
 
 export const KP_TYPES = ["movie", "tv-series", "cartoon", "anime", "animated-series", "tv-show"];

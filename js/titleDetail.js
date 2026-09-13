@@ -12,6 +12,7 @@ import { STATUS_LABEL, TYPE_LABEL } from "./config.js";
 import { bindClose, escapeHtml, pluralRu, posterHtml, ratingAvg, showStatus, starsHtml } from "./utils.js";
 import { loadMyList } from "./mylist.js";
 import { openUserCard } from "./userCard.js";
+import { ensureTrailerUrl } from "./catalog.js";
 
 export async function openTitleDetail(titleId, opts) {
   state.openTitleId = titleId;
@@ -84,6 +85,15 @@ async function renderTitleDetail(titleId) {
 
   var notInListNote = !ut ? '<p class="catalog-hint" style="margin:6px 0 0;">Ещё не в вашем личном списке — выберите статус, чтобы добавить.</p>' : '';
 
+  // Ссылку на трейлер ApiGet.ru отдаёт не сразу (см. ensureTrailerUrl) —
+  // если её ещё нет в базе, запрашиваем в фоне и, если нашлась, дорисовываем
+  // карточку заново (без повторного похода за остальными данными).
+  if (!t.trailer_url && t.kp_id) {
+    ensureTrailerUrl(t).then(function (url) {
+      if (url && state.openTitleId === titleId) { t.trailer_url = url; renderTitleDetail(titleId); }
+    });
+  }
+
   inner.innerHTML =
     '<button class="close-x" data-close="detailDialog">✕</button>' +
     '<div class="detail-poster">' + posterHtml(t.poster_url) + '</div>' +
@@ -94,6 +104,7 @@ async function renderTitleDetail(titleId) {
       (t.genre ? '<span>· ' + escapeHtml(t.genre) + '</span>' : '') +
       (t.kp_rating ? '<span>· Kinopoisk ' + t.kp_rating + '</span>' : '') +
     '</div>' +
+    (t.trailer_url ? '<div style="margin:8px 0;"><a class="btn small" href="' + escapeHtml(t.trailer_url) + '" target="_blank" rel="noopener">▶ Смотреть трейлер</a></div>' : '') +
     (t.overview ? '<p class="detail-note">' + escapeHtml(t.overview) + '</p>' : '') +
     '<div class="status-switch">' + statusButtons + '</div>' +
     notInListNote +
