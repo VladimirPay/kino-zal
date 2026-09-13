@@ -73,9 +73,16 @@
           <input id="catalogSearch" type="text" placeholder="Название фильма или сериала…">
           <button class="btn primary" type="submit">Искать</button>
         </form>
+        <span class="select-wrap"><select id="catalogSort" title="Сортировка">
+          <option value="rating">★ По рейтингу</option>
+          <option value="year">📅 Сначала новые</option>
+          <option value="alpha">🔤 По алфавиту</option>
+          <option value="shuffle">🎲 Перемешать</option>
+        </select></span>
+        <button class="btn" id="catalogShuffleBtn" type="button" hidden title="Перемешать ещё раз">🎲</button>
         <span class="count" id="catalogCount"></span>
       </div>
-      <p class="catalog-hint">Введите название, нажмите «Искать», найдите тайтл и нажмите «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
+      <p class="catalog-hint">Ниже — случайная подборка для вдохновения. Чтобы найти конкретный фильм или сериал, введите название, нажмите «Искать» и затем «Добавить в список» — он появится в приватной вкладке «Мой список».</p>
       <main id="catalogGrid" class="grid"></main>
     </section>
 
@@ -97,9 +104,9 @@
       <div class="dm-layout">
         <div class="dm-list">
           <div class="dm-new">
-            <select id="dmNewSelect">
+            <span class="select-wrap"><select id="dmNewSelect">
               <option value="">Написать кому-то новому…</option>
-            </select>
+            </select></span>
           </div>
           <div id="dmListItems"></div>
         </div>

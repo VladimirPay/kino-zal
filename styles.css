@@ -51,6 +51,27 @@ nav.tabs .n,nav.sections .n{font-family:'JetBrains Mono',monospace;font-size:0.7
 .toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
 .toolbar input{flex:1;min-width:160px;font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--ink);}
 .toolbar .count{color:var(--muted);font-size:0.85rem;white-space:nowrap;}
+
+/* Стилизованный <select> — везде на сайте (сортировка каталога, выбор
+   собеседника в ЛС) вместо голого системного вида. Обёртка нужна для
+   кастомной стрелочки (::after) — сама она через var(--muted), поэтому
+   корректно смотрится и в светлой, и в тёмной теме без лишнего SVG. */
+.select-wrap{position:relative;display:inline-flex;flex:0 0 auto;}
+.select-wrap::after{
+  content:"";position:absolute;right:12px;top:50%;
+  width:7px;height:7px;pointer-events:none;
+  border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:translateY(-65%) rotate(45deg);
+}
+.select-wrap select{
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  font:inherit;font-size:0.9rem;color:var(--ink);background:var(--surface);
+  border:1px solid var(--border);border-radius:9px;
+  padding:9px 30px 9px 12px;cursor:pointer;min-width:0;
+}
+.select-wrap select:hover{border-color:var(--accent);}
+.select-wrap select:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+.select-wrap select option{background:var(--surface);color:var(--ink);}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px 16px;cursor:pointer;position:relative;border-left-width:5px;box-shadow:0 6px 16px -14px var(--shadow);display:flex;flex-direction:column;gap:6px;min-height:150px;overflow:hidden;}
 .card:hover{border-color:var(--accent);}
