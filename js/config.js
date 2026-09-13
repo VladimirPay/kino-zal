@@ -14,17 +14,25 @@ export const SECTIONS = [
   {key: "catalog", label: "Каталог"},
   {key: "chat", label: "Чат"},
   {key: "messages", label: "Сообщения"},
-  {key: "friends", label: "Друзья"}
+  {key: "friends", label: "Друзья"},
+  {key: "admin", label: "Управление", adminOnly: true}
 ];
 
 export const TABS = [
   {key: "all", label: "Все"},
-  {key: "want", label: "Хотим посмотреть"},
-  {key: "watching", label: "Смотрим"},
-  {key: "watched", label: "Посмотрели"}
+  {key: "want", label: "Хочу посмотреть"},
+  {key: "watching", label: "Смотрю"},
+  {key: "watched", label: "Просмотрено"}
 ];
 
-export const STATUS_LABEL = {want: "Хотим посмотреть", watching: "Смотрим", watched: "Посмотрели"};
+export const STATUS_LABEL = {want: "Хочу посмотреть", watching: "Смотрю", watched: "Просмотрено"};
+
+export const ADMIN_TABS = [
+  {key: "users", label: "Пользователи"},
+  {key: "titles", label: "Фильмы"},
+  {key: "apiLimits", label: "Лимиты API"},
+  {key: "activityLog", label: "Журнал действий"}
+];
 export const TYPE_LABEL = {
   movie: "Фильм", "tv-series": "Сериал", cartoon: "Мультфильм",
   anime: "Аниме", "animated-series": "Мультсериал", "tv-show": "Шоу"

@@ -1,0 +1,172 @@
+// Наш Кинозал — единая карточка тайтла (диалог с постером, описанием,
+// статусом/оценкой/комментариями). Открывается и из «Моего списка» (тайтл уже
+// в личном списке), и из «Каталога»/рекомендаций (тайтл ещё может быть не
+// добавлен) — в обоих случаях показывает одно и то же: статус можно менять
+// (для ещё не добавленного — любая кнопка статуса добавляет его), оценки и
+// комментарии видны и доступны всем, независимо от того, в чьём личном списке
+// тайтл состоит (это общая, не приватная часть данных).
+
+import { sb } from "./supabaseClient.js";
+import { state } from "./state.js";
+import { STATUS_LABEL, TYPE_LABEL } from "./config.js";
+import { bindClose, escapeHtml, pluralRu, posterHtml, ratingAvg, showStatus, starsHtml } from "./utils.js";
+import { loadMyList } from "./mylist.js";
+import { openUserCard } from "./userCard.js";
+
+export async function openTitleDetail(titleId) {
+  state.openTitleId = titleId;
+  document.getElementById("detailDialog").showModal();
+  await renderTitleDetail(titleId);
+}
+
+// Позволяет другим модулям (например, «Мой список» после перезагрузки данных)
+// обновить уже открытый диалог тайтла, ничего не делая, если он закрыт.
+export function refreshOpenDetailIfAny() {
+  if (state.openTitleId != null) renderTitleDetail(state.openTitleId);
+}
+
+document.getElementById("detailDialog").addEventListener("close", function () {
+  state.openTitleId = null;
+});
+
+async function renderTitleDetail(titleId) {
+  var inner = document.getElementById("detailInner");
+  inner.innerHTML = '<button class="close-x" data-close="detailDialog">✕</button><p class="empty-note">Загрузка…</p>';
+  bindClose(inner);
+
+  const [tRes, utRes] = await Promise.all([
+    sb.from("titles")
+      .select("*, ratings(user_id,value), comments(id,text,created_at,user_id,profiles!user_id(display_name),comment_likes(user_id))")
+      .eq("id", titleId).limit(1),
+    sb.from("user_titles").select("*").eq("title_id", titleId).eq("user_id", state.myProfile.id).limit(1)
+  ]);
+  // Диалог могли закрыть или открыть другой тайтл, пока шёл запрос.
+  if (state.openTitleId !== titleId) return;
+  if (tRes.error || !tRes.data || !tRes.data.length) {
+    inner.innerHTML = '<button class="close-x" data-close="detailDialog">✕</button><p class="empty-note">Не удалось загрузить карточку' + (tRes.error ? ": " + escapeHtml(tRes.error.message) : "") + '.</p>';
+    bindClose(inner);
+    return;
+  }
+  var t = tRes.data[0];
+  var ut = (utRes.data && utRes.data[0]) || null; // null = тайтла ещё нет в моём личном списке
+
+  var avg = ratingAvg(t);
+  var ratingCount = (t.ratings || []).length;
+  var mine = (t.ratings || []).find(function (r) { return r.user_id === state.myProfile.id; });
+  var myRating = mine ? mine.value : 0;
+
+  var starsControl = "";
+  for (var i = 1; i <= 5; i++) {
+    starsControl += '<button type="button" data-star="' + i + '" class="' + (i <= myRating ? "on" : "") + '">★</button>';
+  }
+  var statusButtons = ["want", "watching", "watched"].map(function (s) {
+    return '<button type="button" class="btn small ' + (ut && ut.status === s ? "active" : "") + '" data-status="' + s + '">' + STATUS_LABEL[s] + '</button>';
+  }).join("");
+
+  var sortedComments = (t.comments || []).slice().sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
+  var commentsHtml = sortedComments.length
+    ? sortedComments.map(function (c) {
+        var who = (c.profiles && c.profiles.display_name) || "неизвестно";
+        var canDel = state.myProfile && (c.user_id === state.myProfile.id || state.myProfile.role === "admin");
+        var likeCount = (c.comment_likes || []).length;
+        var liked = (c.comment_likes || []).some(function (l) { return l.user_id === state.myProfile.id; });
+        return '<div class="comment"><div class="who"><button type="button" class="btn linklike small" data-open-user="' + c.user_id + '" style="padding:0;">' + escapeHtml(who) + '</button>' +
+          '<button class="like-btn ' + (liked ? "liked" : "") + '" data-like-comment="' + c.id + '" type="button">♥ ' + likeCount + '</button>' +
+          (canDel ? ' <button class="btn linklike small" data-del-comment="' + c.id + '" type="button">удалить</button>' : '') +
+          '</div><div>' + escapeHtml(c.text) + '</div></div>';
+      }).join("")
+    : '<p class="empty-note">Комментариев пока нет.</p>';
+
+  var notInListNote = !ut ? '<p class="catalog-hint" style="margin:6px 0 0;">Ещё не в вашем личном списке — выберите статус, чтобы добавить.</p>' : '';
+
+  inner.innerHTML =
+    '<button class="close-x" data-close="detailDialog">✕</button>' +
+    '<div class="detail-poster">' + posterHtml(t.poster_url) + '</div>' +
+    '<h2>' + escapeHtml(t.title) + '</h2>' +
+    '<div class="detail-meta mono">' +
+      '<span class="badge">' + TYPE_LABEL[t.media_type] + '</span>' +
+      '<span>' + (t.year || "—") + '</span>' +
+      (t.genre ? '<span>· ' + escapeHtml(t.genre) + '</span>' : '') +
+      (t.kp_rating ? '<span>· Kinopoisk ' + t.kp_rating + '</span>' : '') +
+    '</div>' +
+    (t.overview ? '<p class="detail-note">' + escapeHtml(t.overview) + '</p>' : '') +
+    '<div class="status-switch">' + statusButtons + '</div>' +
+    notInListNote +
+    '<div class="rate-row"><span class="rate-stars">' + starsControl + '</span>' +
+      '<span class="mono" style="color:var(--muted);font-size:0.85rem;">' + (avg ? avg.toFixed(1) + ' · ' + ratingCount + ' ' + pluralRu(ratingCount, ["оценка", "оценки", "оценок"]) : "пока нет оценок") + '</span></div>' +
+    '<div class="comments"><h3 style="font-family:\'Bebas Neue\',sans-serif;font-size:1.15rem;letter-spacing:0.03em;margin:0 0 8px;">Комментарии</h3>' +
+      commentsHtml +
+      '<form id="commentForm" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<input id="commentText" placeholder="Написать комментарий…" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);font:inherit;">' +
+        '<button class="btn primary small" type="submit">Отправить</button>' +
+      '</form>' +
+    '</div>' +
+    (ut ? '<div class="dialog-actions"><button class="btn danger small" id="removeBtn" type="button">Убрать из моего списка</button></div>' : '');
+
+  bindClose(inner);
+
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-status]"), function (btn) {
+    btn.addEventListener("click", async function () {
+      var newStatus = btn.getAttribute("data-status");
+      if (ut) {
+        const { error } = await sb.from("user_titles").update({status: newStatus}).eq("id", ut.id);
+        if (error) { showStatus("Не удалось изменить статус: " + error.message, true); return; }
+      } else {
+        const { error } = await sb.from("user_titles").insert({user_id: state.myProfile.id, title_id: t.id, status: newStatus});
+        if (error) { showStatus("Не удалось добавить: " + error.message, true); return; }
+        showStatus('Добавлено в «' + STATUS_LABEL[newStatus] + '»');
+      }
+      renderTitleDetail(titleId);
+      loadMyList();
+    });
+  });
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-star]"), function (btn) {
+    btn.addEventListener("click", async function () {
+      const val = parseInt(btn.getAttribute("data-star"), 10);
+      const { error } = await sb.from("ratings").upsert({title_id: t.id, user_id: state.myProfile.id, value: val}, {onConflict: "title_id,user_id"});
+      if (error) { showStatus("Не удалось сохранить оценку: " + error.message, true); return; }
+      renderTitleDetail(titleId);
+    });
+  });
+  inner.querySelector("#commentForm").addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    var text = document.getElementById("commentText").value.trim();
+    if (!text) return;
+    const { error } = await sb.from("comments").insert({title_id: t.id, user_id: state.myProfile.id, text: text});
+    if (error) { showStatus("Не удалось отправить комментарий: " + error.message, true); return; }
+    renderTitleDetail(titleId);
+  });
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-del-comment]"), function (btn) {
+    btn.addEventListener("click", async function () {
+      const { error } = await sb.from("comments").delete().eq("id", btn.getAttribute("data-del-comment"));
+      if (error) { showStatus("Не удалось удалить комментарий: " + error.message, true); return; }
+      renderTitleDetail(titleId);
+    });
+  });
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-like-comment]"), function (btn) {
+    btn.addEventListener("click", async function () {
+      var cid = btn.getAttribute("data-like-comment");
+      var liked = btn.classList.contains("liked");
+      if (liked) {
+        await sb.from("comment_likes").delete().eq("comment_id", cid).eq("user_id", state.myProfile.id);
+      } else {
+        await sb.from("comment_likes").insert({comment_id: cid, user_id: state.myProfile.id});
+      }
+      renderTitleDetail(titleId);
+    });
+  });
+  Array.prototype.forEach.call(inner.querySelectorAll("[data-open-user]"), function (btn) {
+    btn.addEventListener("click", function () { openUserCard(btn.getAttribute("data-open-user")); });
+  });
+  var removeBtn = inner.querySelector("#removeBtn");
+  if (removeBtn) {
+    removeBtn.addEventListener("click", async function () {
+      if (!confirm('Убрать «' + t.title + '» из вашего личного списка? (Общая карточка, оценки и комментарии других людей останутся.)')) return;
+      const { error } = await sb.from("user_titles").delete().eq("id", ut.id);
+      if (error) { showStatus("Не удалось убрать: " + error.message, true); return; }
+      document.getElementById("detailDialog").close();
+      state.openTitleId = null;
+      loadMyList();
+    });
+  }
+}

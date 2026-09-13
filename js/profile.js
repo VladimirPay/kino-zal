@@ -1,11 +1,12 @@
 // Наш Кинозал — строка «Вы: …» в шапке, диалог профиля (имя/о себе/пароль/
-// делиться активностью), достижения. Кнопка «Пользователи» открывает admin.js.
+// делиться активностью), достижения. Управление пользователями/каталогом
+// вынесено в отдельную вкладку «Управление» (см. admin.js, config.js SECTIONS)
+// — здесь для неё ничего открывать не нужно.
 
 import { sb } from "./supabaseClient.js";
 import { state } from "./state.js";
 import { showStatus } from "./utils.js";
 import { escapeHtml } from "./utils.js";
-import { openAdminDialog } from "./admin.js";
 
 export function renderYouRow() {
   var el = document.getElementById("youRow");
@@ -14,10 +15,8 @@ export function renderYouRow() {
   el.innerHTML =
     'Вы: <strong>' + escapeHtml(state.myProfile.display_name) + '</strong> ' +
     '<span class="role-badge">' + (isAdmin ? "администратор" : "участник") + '</span> ' +
-    '<button class="btn small" id="profileBtn" type="button">Профиль</button>' +
-    (isAdmin ? '<button class="btn small" id="adminBtn" type="button">Пользователи</button>' : '');
+    '<button class="btn small" id="profileBtn" type="button">Профиль</button>';
   document.getElementById("profileBtn").addEventListener("click", openProfileDialog);
-  if (isAdmin) document.getElementById("adminBtn").addEventListener("click", openAdminDialog);
 }
 
 async function openProfileDialog() {

@@ -4,6 +4,7 @@ import { sb } from "./supabaseClient.js";
 import { state } from "./state.js";
 import { escapeHtml, fmtTime, showStatus } from "./utils.js";
 import { registerSectionLoader } from "./router.js";
+import { openUserCard } from "./userCard.js";
 
 export async function loadDmConversations() {
   const { data, error } = await sb.from("dm_messages")
@@ -81,16 +82,25 @@ export async function openDmThread(partnerId) {
 function dmMsgHtml(m) {
   var who = (state.profilesById[m.sender_id] || {}).display_name || "…";
   var mine = m.sender_id === state.myProfile.id;
-  return '<div class="chat-msg' + (mine ? " mine" : "") + '"><div class="who">' + escapeHtml(who) + '<span class="when">' + fmtTime(m.created_at) + '</span></div><div>' + escapeHtml(m.text) + '</div></div>';
+  return '<div class="chat-msg' + (mine ? " mine" : "") + '"><div class="who"><button type="button" class="btn linklike small" data-open-user="' + m.sender_id + '" style="padding:0;">' + escapeHtml(who) + '</button><span class="when">' + fmtTime(m.created_at) + '</span></div><div>' + escapeHtml(m.text) + '</div></div>';
 }
 
 function renderDmThread() {
   var thread = document.getElementById("dmThread");
   thread.classList.add("open");
+  var head = document.getElementById("dmThreadHead");
+  var partnerName = (state.profilesById[state.activeDmUser] || {}).display_name || "…";
+  head.hidden = false;
+  head.innerHTML = '<button type="button" class="btn linklike" data-open-user="' + state.activeDmUser + '">' + escapeHtml(partnerName) + '</button>';
+  head.querySelector("[data-open-user]").addEventListener("click", function () { openUserCard(state.activeDmUser); });
   var log = document.getElementById("dmLog");
   var msgs = state.dmConversations[state.activeDmUser] || [];
   log.innerHTML = msgs.length ? msgs.map(dmMsgHtml).join("") : '<p class="empty-note">Начните переписку.</p>';
   log.scrollTop = log.scrollHeight;
+  // Клик по имени автора конкретного сообщения тоже открывает карточку профиля.
+  Array.prototype.forEach.call(log.querySelectorAll("[data-open-user]"), function (btn) {
+    btn.addEventListener("click", function () { openUserCard(btn.getAttribute("data-open-user")); });
+  });
 }
 
 document.getElementById("dmForm").addEventListener("submit", async function (ev) {
